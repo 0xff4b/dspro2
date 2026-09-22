@@ -1,0 +1,211 @@
+\documentclass[11pt,a4paper]{article}
+
+% -------------------------------------------------
+% HSLU-like Proposal Template (DSPRO2 FS25)
+% -------------------------------------------------
+
+% ---------- Encoding & Typography ----------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ---------- Page Layout ----------
+\usepackage[a4paper,margin=25mm]{geometry}
+\usepackage{setspace}
+\setstretch{1.15}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+
+% ---------- Colors ----------
+\usepackage{xcolor}
+\definecolor{hsluRed}{HTML}{E30613}
+\definecolor{hsluDark}{HTML}{222222}
+\definecolor{hsluGray}{HTML}{666666}
+\definecolor{lineGray}{HTML}{D9D9D9}
+\definecolor{boxGray}{HTML}{F5F5F5}
+
+% ---------- Graphics & Tables ----------
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+
+% ---------- Headers/Footers ----------
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Hochschule Luzern \textbar\ Informatik}
+\rhead{\small DSPRO2 HS26 Proposal}
+\cfoot{\small \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{lineGray}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\footrulewidth}{0pt}
+
+% ---------- Section Style ----------
+\usepackage{titlesec}
+\titleformat{\section}
+  {\Large\bfseries\color{hsluDark}}
+  {\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\normalsize\bfseries\color{hsluDark}}
+  {\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.2em}{0.4em}
+\titlespacing*{\subsection}{0pt}{0.8em}{0.2em}
+
+% ---------- Hyperlinks ----------
+\usepackage[hidelinks]{hyperref}
+
+% ---------- Utility ----------
+\newcommand{\blankline}{\vspace{0.2em}{\color{lineGray}\hrule}\vspace{0.55em}}
+\newcommand{\fieldlabel}[1]{\textbf{#1}\vspace{0.15em}}
+\newcommand{\hsluwordmark}{%
+  {\fontsize{22}{24}\selectfont\bfseries\textcolor{black}{HSLU}}%
+}
+\newcommand{\proposaltype}{%
+  {\fontsize{13}{15}\selectfont\bfseries Project Proposal}
+}
+\newcommand{\moduleline}{%
+  {\fontsize{11}{13}\selectfont DSPRO2}
+}
+
+\begin{document}
+
+% =========================
+% Cover / Title Area
+% =========================
+\begin{minipage}[t]{0.62\textwidth}
+    \hsluwordmark\\[-1mm]
+    {\small\color{hsluGray}Hochschule Luzern}\\[-0.5mm]
+    {\small\color{hsluGray}Departement Informatik}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.35\textwidth}
+    \raggedleft
+    \proposaltype\\[1mm]
+    \moduleline
+\end{minipage}
+
+\vspace{8mm}
+{\color{hsluGray}\rule{\textwidth}{1.2pt}}
+
+\vspace{8mm}
+
+\begin{center}
+    {\LARGE\bfseries\color{hsluDark}Proposal for Data Science Project}\\[1mm]
+    {\large\color{hsluGray}Semester: HS26}
+\end{center}
+
+\vspace{8mm}
+
+% =========================
+% Metadata Box
+% =========================
+\colorbox{boxGray}{%
+\parbox{\dimexpr\linewidth-2\fboxsep\relax}{
+\vspace{1mm}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{0.26\linewidth} X}
+Project Title & Predicting Apartment Rental Prices in Switzerland: Multimodal Deep Learning and a Quality-of-Life Index \\
+Course / Module & DSPRO2 HS26 \\
+Team Members & Team 6: Elias Martinelli, Timo Schlumpf \\
+Supervisor / Coach & Dr. Elena Nazarenko \\
+Date of Submission & \today \\
+GitHub Repository & \url{https://github.com/wadafacc/dspro2} \\
+\end{tabularx}
+\vspace{1mm}
+}
+}
+
+\vspace{1em}
+
+% =========================
+% Main Sections
+% =========================
+\section{Short Project Description}
+
+\textbf{Problem and motivation.} Rental prices in Switzerland are opaque, and a price alone does not tell a tenant whether an apartment is a good place to live. In DSPRO1 we built a LightGBM model on 9{,}994 listings scraped from rentumo.ch (snapshot of 13 April 2026), enriched with Swisstopo geodata, and served it through a Streamlit dashboard. The model reaches $R^2 = 0.751$ and an RMSE of about 393~CHF, but it systematically underestimates expensive apartments, reports only one global uncertainty value (a constant $\pm$ band for every apartment), and is trained on a single snapshot in which only about half of the scraped listings were usable. The free-text listing description is already stored in our database (\texttt{listing\_details.description}) but was never used as a feature.
+
+\textbf{Objectives.} DSPRO2 turns this prototype into a reproducible, near-production system with two outputs per apartment: an estimated rent and a quality-of-life score.
+\begin{itemize}
+    \item \textbf{New baseline:} DSPRO1 LightGBM retrained on a larger, cleaner, deduplicated, multi-source dataset (target $\approx$30{,}000 unique objects) with additional official geodata.
+    \item \textbf{Text as a feature:} the listing description is used for the first time, in two steps: (1) simple text features for the tree model (TF-IDF / keyword flags such as balcony, lift, renovated, lake view, and sentence embeddings), (2) a multimodal deep-learning model that fuses tabular and geo features (MLP branch) with the description (pretrained multilingual transformer). Both are compared against the baseline in an ablation study. Pretrained orthophoto embeddings (SWISSIMAGE) are an optional, time-boxed extension.
+    \item \textbf{Per-apartment prediction intervals:} instead of a constant error band, the model predicts the lower quantile, the median and the upper quantile of the rent via quantile regression (LightGBM with pinball loss, e.g.\ 10\,\%/50\,\%/90\,\%). Intervals are calibrated on a hold-out set with conformalized quantile regression (CQR), so that the stated coverage actually holds.
+    \item \textbf{Quality-of-Life Index (QoLI):} a composite indicator following the OECD/JRC \emph{Handbook on Constructing Composite Indicators} and the OECD Better Life Index (min--max normalisation, equal weights within dimensions, user-defined weights across dimensions). Accessibility is modelled with a Walk-Score-style distance decay on OSM amenities; environmental dimensions use WHO thresholds (e.g.\ road noise $<$53~dB $L_{den}$).
+    \item \textbf{Value score:} quality of life relative to price, to identify apartments that offer more than their rent suggests.
+    \item \textbf{Interactive app (Plotly Dash):} a \emph{Your Price} view that shows the estimated rent together with its interval (e.g.\ ``2{,}150~CHF, likely between 1{,}900 and 2{,}450~CHF''), the asking rent of the listing positioned inside this range, and the main drivers of the estimate (SHAP). An interactive map offers drill-down from canton to district, municipality and street, showing median CHF/m\textsuperscript{2}, QoLI and value score (with a minimum-count rule for sparse areas).
+\end{itemize}
+
+\textbf{Research questions.}
+\begin{itemize}
+    \item RQ1: Does the listing text (and optionally aerial imagery) improve rent prediction over a strong tabular model, and is the improvement statistically significant?
+    \item RQ1b: Do quantile-regression intervals reach their nominal coverage while being narrower than a constant band, overall and per price segment?
+    \item RQ2: Can a valid quality-of-life index be constructed without ground truth, as measured by convergent validity with the BILANZ/IAZI municipal ranking and BFS City Statistics?
+    \item RQ3: Do users find the value score and per-prediction intervals useful for judging an apartment (human-in-the-loop study)?
+\end{itemize}
+
+\textbf{Expected impact.} Tenants get a transparent, explainable estimate of what an apartment should cost and what it offers, instead of a single number. Methodologically, the project demonstrates honest validation (duplicate-free splits, fixed hold-out test set, cross-validation), fit-for-purpose metrics (MAE in CHF per segment, interval coverage and width) and a documented EU AI Act risk assessment.
+
+% --- Section 2 ---
+\section{Data Description}
+
+\textbf{Sources.}
+\begin{itemize}
+    \item \textbf{Listings:} rentumo.ch (DSPRO1 snapshot) plus further Swiss portals and websites of property managers, collected by a daily, incremental scraper. Each source is only included after checking its robots.txt file and terms of use; blocked sources are paused, not circumvented (comparis.ch remains excluded as in DSPRO1). Portals are additionally asked for data exports.
+    \item \textbf{Official geodata (free, BGDI/opendata.swiss):} BAFU sonBASE road and rail noise (address level), BAFU PolluMap NO\textsubscript{2}/PM2.5 (20~m grid), ARE public-transport quality classes, BFS STATPOP/STATENT (100~m grid), BFS Arealstatistik (land use), BFS vacancy rate per municipality, ESTV tax burden per municipality, MeteoSwiss sunshine duration, GWR building attributes via EGID, swissBOUNDARIES3D for the map hierarchy.
+    \item \textbf{OpenStreetMap:} amenities (supermarkets, pharmacies, doctors, schools, childcare, gyms, restaurants, parks) for accessibility scores (ODbL).
+\end{itemize}
+
+\textbf{Volume.} DSPRO1: 9{,}994 extracted listings from one snapshot. DSPRO2 target: $\approx$30{,}000 unique objects after cross-portal deduplication, accumulated over several weeks. A learning curve will show whether this volume is actually required and in which regions data is missing.
+
+\textbf{Target variables.} Primary: monthly net rent \texttt{price\_cold} in CHF (modelled on log scale; CHF/m\textsuperscript{2} as alternative). Secondary output: QoLI (0--100), which has no ground truth and is validated indirectly.
+
+\textbf{Feature types.} Numerical (area, rooms, year built, auxiliary costs, distances, noise levels, pollutant concentrations, amenity counts), categorical (canton, municipality, property type), geospatial (LV95 coordinates, hectare grid IDs), and unstructured text (listing descriptions in German, French and Italian).
+
+\textbf{Preprocessing needs.}
+\begin{itemize}
+    \item \textbf{Duplicate check:} first an audit of the existing DSPRO1 data (exact duplicates by listing ID and URL, near-duplicates by identical description text), then cross-portal deduplication for new data (postcode, normalised street, rooms, area $\pm$3~m\textsuperscript{2}, price $\pm$10\,\%). Repeated listings of the same object are kept together in one split, so no apartment appears in both training and test data. Numbers before and after deduplication are reported.
+    \item \textbf{Text preparation:} language detection (DE/FR/IT), removal of price and contact information from the description before it is used as a feature, so the model cannot read the target directly from the text.
+    \item Recovery of missing area and room values from description text with an LLM extractor; every extracted field must cite its text evidence, and the extractor is evaluated against about 200 hand-labelled listings (precision/recall per field).
+    \item Anomaly filtering (parking spaces, weekly prices, placeholder listings) via price-per-m\textsuperscript{2} outliers per municipality.
+    \item Spatial joins of all geodata via coordinates or EGID; DSPRO1 NULL-handling rules are kept.
+\end{itemize}
+
+\textbf{Validation protocol.} As a basic setup, the deduplicated data is split once into a training set (80\,\%) and a fixed hold-out test set (20\,\%, stratified by canton and price band). The test set is used only for the final comparison. Model selection and hyperparameter tuning use $k$-fold cross-validation ($k=5$) on the training set. As a robustness check, a spatially grouped CV (by municipality) shows how well the model transfers to unseen regions. A naive baseline (median CHF/m\textsuperscript{2} per municipality) is always reported alongside the models.
+
+\textbf{Quality constraints.} Listings are asking rents, not existing rents, and represent only the portals covered. Noise and air data are modelled rather than measured. OSM completeness varies by region. Personal data (landlord names, phone numbers) is not stored (revDSG). All limitations are documented in an updated datasheet.
+
+% --- Section 3 ---
+\section{Cloud Service Integration}
+\begin{itemize}
+    \item \textbf{Neon (serverless PostgreSQL):} central database for listings, enrichment tables and LLM extraction cache; already used in DSPRO1, so no migration is needed.
+    \item \textbf{GitHub Actions:} scheduled nightly scraping job and CI (linting, unit tests for the feature pipeline, training smoke test). Free for our volume and tightly coupled to the repository.
+    \item \textbf{S3-compatible object storage (e.g.\ Cloudflare R2):} remote for DVC data snapshots, orthophoto tiles and MLflow artifacts; keeps large files out of Git while making every dataset version reproducible.
+    \item \textbf{GPU compute (HSLU resources if available, otherwise Google Colab / Kaggle):} fine-tuning of the text transformer and embedding extraction; only needed for the deep-learning experiments.
+    \item \textbf{LLM API (batch mode) or a local model via Ollama:} structured field extraction from descriptions; outputs are cached and versioned so results are reproducible and each text is processed only once.
+    \item \textbf{Hugging Face Spaces (Docker):} public deployment of the Plotly Dash app (Your Price view and interactive map). Dash replaces the Streamlit prototype from DSPRO1 because it gives finer control over interactive Plotly figures and callbacks.
+\end{itemize}
+
+% --- Section 4 ---
+\section{Kanban Tool}
+We use \textbf{GitHub Projects}, because issues, pull requests and the board live next to the code.
+\begin{itemize}
+    \item \textbf{Columns:} Backlog $\rightarrow$ Ready $\rightarrow$ In Progress $\rightarrow$ Review $\rightarrow$ Done.
+    \item \textbf{Labels by workstream:} \texttt{data-pipeline}, \texttt{enrichment}, \texttt{modelling}, \texttt{text-features}, \texttt{uncertainty}, \texttt{qol-index}, \texttt{app}, \texttt{docs}; priority labels follow a MoSCoW scheme.
+    \item \textbf{Workflow:} weekly planning at the start of each sprint; every task is an issue linked to a branch and a pull request; the other team member reviews before merging.
+    \item \textbf{Definition of Done:} tests pass in CI, experiments are logged in MLflow, and documentation (README, datasheet, model card) is updated.
+\end{itemize}
+
+% --- Section 5 ---
+\section{Experiment Tracking Tool}
+We use \textbf{MLflow} with Neon PostgreSQL as backend store and object storage as artifact store, so that runs from all team members and from CI end up in one place.
+\begin{itemize}
+    \item \textbf{Parameters:} model type and hyperparameters (tuned with Optuna), feature set / ablation stage (tabular $\rightarrow$ +geo $\rightarrow$ +text features $\rightarrow$ +text transformer $\rightarrow$ +image), quantile levels and calibration method, split / CV scheme and fold assignment, deduplication version, data snapshot version (DVC hash), Git commit, random seed, LLM model and prompt version for extraction runs, QoLI weights and aggregation method.
+    \item \textbf{Metrics:} MAE and RMSE in CHF, MAPE, $R^2$, MAE per segment (region, price band, urban/rural), pinball loss, prediction-interval coverage and mean width (overall and per price band), bootstrap confidence intervals of the metrics and paired significance tests between models (e.g.\ Wilcoxon signed-rank test on per-listing errors), extraction precision/recall, QoLI rank stability in the sensitivity analysis, and correlation with the BILANZ/IAZI ranking.
+    \item \textbf{Artifacts:} SHAP plots, interval-coverage plots, residual maps, actual-vs-predicted plots, learning curves, prediction files, model card.
+    \item \textbf{Models:} all trained models are logged; the best model per stage is registered in the MLflow Model Registry and promoted to the deployed app.
+\end{itemize}
+
+\end{document}
