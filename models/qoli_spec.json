@@ -1,5 +1,5 @@
 {
-  "version": "qoli-20261002-215326",
+  "version": "qoli-20261002-222930",
   "reference": "inhabited hectares, BFS STATPOP 2021 (winsor 1 %/99 %)",
   "aggregation": "linear; equal weights within dimensions, user weights across dimensions",
   "default_weights": {

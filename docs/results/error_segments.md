@@ -1,4 +1,4 @@
-<!-- model lgbm_te, data csv, run full, session 20260927-193408 -->
+<!-- model lgbm_te, data csv, run full, session 20261002-221320 -->
 | dimension | segment | n | MAE | RMSE | MAPE | bias |
 |:---|:---|---:|---:|---:|---:|---:|
 | language region | de | 1054 | 249 | 369 | 14.0 | -26 |

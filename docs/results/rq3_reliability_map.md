@@ -1,4 +1,4 @@
-<!-- mondrian_quantile, cells with >= 20 test objects, data csv, run full, session 20260927-193408 -->
+<!-- mondrian_quantile, cells with >= 20 test objects, data csv, run full, session 20261002-221320 -->
 | level | key | unit | n | coverage | cp_low | cp_high |
 |:---|:---|:---|---:|---:|---:|---:|
 | canton | AG | AG | 109 | 0.780 | 0.690 | 0.854 |

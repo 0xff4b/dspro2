@@ -1,4 +1,4 @@
-<!-- RQ2 winner lgbm_te, data csv, run full, session 20260927-193408 -->
+<!-- RQ2 winner lgbm_te, data csv, run full, session 20261002-221320 -->
 | method | realised band | n | coverage | below | above | mean_width | median_width | cp_low | cp_high |
 |:---|:---|---:|---:|---:|---:|---:|---:|---:|---:|
 | raw_quantile | B1 | 438 | 0.790 | 0.178 | 0.032 | 543 | 519 | 0.749 | 0.827 |

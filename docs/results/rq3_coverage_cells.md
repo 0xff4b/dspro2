@@ -1,4 +1,4 @@
-<!-- RQ2 winner lgbm_te, data csv, run full, session 20260927-193408 -->
+<!-- RQ2 winner lgbm_te, data csv, run full, session 20261002-221320 -->
 | method | cell | n | coverage | below | above | mean_width | median_width | cp_low | cp_high |
 |:---|:---|---:|---:|---:|---:|---:|---:|---:|---:|
 | raw_quantile | de × B1 | 216 | 0.755 | 0.102 | 0.144 | 499 | 486 | 0.692 | 0.810 |

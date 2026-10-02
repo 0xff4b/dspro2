@@ -1,4 +1,4 @@
-<!-- 500 Dirichlet draws, session 20261002-215326 -->
+<!-- 500 Dirichlet draws, session 20261002-222930 -->
 | unit | units | spearman_median | spearman_p05 | top_decile_retention | mean_abs_rank_shift_pct | stable |
 |:---|---:|---:|---:|---:|---:|:---|
 | objects | 8125.000 | 0.926 | 0.743 | 0.701 | 8.340 | False |
