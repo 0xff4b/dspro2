@@ -1,8 +1,0 @@
-services:
-  app:
-    build: .
-    ports:
-      - "127.0.0.1:8501:8501"
-    mem_limit: 512m
-    cpus: 0.25
-    restart: "no"

@@ -1,0 +1,224 @@
+\documentclass[11pt,a4paper]{article}
+
+% -------------------------------------------------
+% HSLU-like Proposal Template (DSPRO2 FS25)
+% -------------------------------------------------
+
+% ---------- Encoding & Typography ----------
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+
+% ---------- Page Layout ----------
+\usepackage[a4paper,margin=25mm]{geometry}
+\usepackage{setspace}
+\setstretch{1.15}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+
+% ---------- Colors ----------
+\usepackage{xcolor}
+\definecolor{hsluRed}{HTML}{E30613}
+\definecolor{hsluDark}{HTML}{222222}
+\definecolor{hsluGray}{HTML}{666666}
+\definecolor{lineGray}{HTML}{D9D9D9}
+\definecolor{boxGray}{HTML}{F5F5F5}
+
+% ---------- Graphics & Tables ----------
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{longtable}
+
+% ---------- Headers/Footers ----------
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Hochschule Luzern \textbar\ Informatik}
+\rhead{\small DSPRO2 HS26 Proposal}
+\cfoot{\small \thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{lineGray}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\footrulewidth}{0pt}
+
+% ---------- Section Style ----------
+\usepackage{titlesec}
+\titleformat{\section}
+  {\Large\bfseries\color{hsluDark}}
+  {\thesection}{0.6em}{}
+\titleformat{\subsection}
+  {\normalsize\bfseries\color{hsluDark}}
+  {\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{1.2em}{0.4em}
+\titlespacing*{\subsection}{0pt}{0.8em}{0.2em}
+
+% ---------- Hyperlinks ----------
+\usepackage[hidelinks]{hyperref}
+
+% ---------- Utility ----------
+\newcommand{\blankline}{\vspace{0.2em}{\color{lineGray}\hrule}\vspace{0.55em}}
+\newcommand{\fieldlabel}[1]{\textbf{#1}\vspace{0.15em}}
+\newcommand{\hsluwordmark}{%
+  {\fontsize{22}{24}\selectfont\bfseries\textcolor{black}{HSLU}}%
+}
+\newcommand{\proposaltype}{%
+  {\fontsize{13}{15}\selectfont\bfseries Project Proposal}
+}
+\newcommand{\moduleline}{%
+  {\fontsize{11}{13}\selectfont DSPRO2}
+}
+
+\begin{document}
+
+% =========================
+% Cover / Title Area
+% =========================
+\begin{minipage}[t]{0.62\textwidth}
+    \hsluwordmark\\[-1mm]
+    {\small\color{hsluGray}Hochschule Luzern}\\[-0.5mm]
+    {\small\color{hsluGray}Departement Informatik}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.35\textwidth}
+    \raggedleft
+    \proposaltype\\[1mm]
+    \moduleline
+\end{minipage}
+
+\vspace{8mm}
+{\color{hsluGray}\rule{\textwidth}{1.2pt}}
+
+\vspace{8mm}
+
+\begin{center}
+    {\LARGE\bfseries\color{hsluDark}Proposal for Data Science Project}\\[1mm]
+    {\large\color{hsluGray}Semester: HS26}
+\end{center}
+
+\vspace{8mm}
+
+% =========================
+% Metadata Box
+% =========================
+\colorbox{boxGray}{%
+\parbox{\dimexpr\linewidth-2\fboxsep\relax}{
+\vspace{1mm}
+\renewcommand{\arraystretch}{1.35}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{0.26\linewidth} X}
+Project Title & RentLens: An AI-Supported Rental Platform for Tenants and Landlords, Combining Explainable Rent Prediction with a Quality-of-Life Index \\
+Course / Module & DSPRO2 HS26 \\
+Team Members & Team 6: Elias Martinelli, Timo Schlumpf \\
+Supervisor / Coach & Dr. Elena Nazarenko \\
+Date of Submission & \today \\
+GitHub Repository & \url{https://github.com/0xff4b/dspro2} \\
+\end{tabularx}
+\vspace{1mm}
+}
+}
+
+\vspace{1em}
+
+% =========================
+% Main Sections
+% =========================
+\section{Short Project Description}
+
+\textbf{Problem and motivation.} Rental prices in Switzerland are opaque, and a price alone does not tell a tenant whether an apartment is a good place to live. In DSPRO1 we scraped 9{,}994 listings from rentumo.ch (snapshot of 13 April 2026), enriched them with GWR and swisstopo geodata and trained tree-based models on the roughly 4{,}500 fully enriched rows, served through a Streamlit dashboard deployed on Azure Container Apps (shown live at the HSLU AI event on 28 September 2026). Our DSPRO1 benchmark is the deployed GradientBoosting model (\texttt{ALL+geo} feature set): $R^2 = 0.710$ and an RMSE of 425~CHF on the evaluation split with a train/eval gap of only 60~CHF. LightGBM with $k$-nearest-neighbour price features reaches a lower RMSE (about 393~CHF) but a gap of roughly 250~CHF, so it was not chosen. Both systematically underestimate expensive apartments, report only one global uncertainty value (a constant $\pm$ band for every apartment), and are trained on a single snapshot in which only about half of the scraped listings were usable. The free-text listing description is already stored in our database (\texttt{listing\_details.description}) but was never used as a feature.
+
+\textbf{Objectives.} DSPRO2 turns this prototype into \emph{RentLens}, a reproducible, near-production platform that gives every apartment an estimated rent with a calibrated interval, a rent-check verdict, a quality-of-life score and a value score. Five points from the supervisor meeting are built in: listing text as a feature, per-apartment quantile intervals instead of a constant band, a duplicate check, a basic train/test split with cross-validation, and a Plotly Dash interface.
+
+\textbf{Priorities.} As agreed with the coach, three deliverables form the core of the project and are completed first, in this order: \textbf{P1 text as a feature}, \textbf{P2 the Quality-of-Life Index}, and \textbf{P3 one advanced modelling technique, the spatial mixed-effects model (GPBoost)}. Everything else below is marked \emph{secondary} (done in a simple form once the core is stable) or \emph{optional} (only if time permits), so the scope can shrink without breaking the story.
+\begin{itemize}
+    \item \textbf{New baseline (core, prerequisite):} the DSPRO1 GradientBoosting benchmark ($R^2 = 0.710$, RMSE 425~CHF) retrained on a larger, cleaner, deduplicated, multi-source dataset (target $\approx$20{,}000 unique objects) with additional official geodata.
+    \item \textbf{Text as a feature (P1, core):} the listing description is used for the first time. (1) Simple text features for the tree model: TF-IDF, keyword flags and sentence embeddings. (2) \emph{Structured attributes with our own classifier:} a fixed schema of about 15 attributes (floor, lift, balcony/terrace, view, renovation year, furnished, temporary lease, parking, Minergie, pets) plus a \emph{rent-regime label} (market rent; cooperative, cost-based or subsidised; shared flat) is extracted from every description by a multi-label attribute model that we train ourselves: a fine-tuned small German encoder (e.g.\ a distilled BERT variant) with classification heads for binary and categorical attributes and regex post-processing for numeric fields (floor, renovation year). Training labels come from about 300 hand-labelled listings plus a seed set of about 2{,}000 listings labelled by an LLM in batch mode (weak supervision); the LLM is only used to bootstrap labels, never at run time, which keeps inference cheap and the model fully ours. The attributes are used as features and to filter the target, and the same model runs live in the app. (3) A fused model that combines tabular and geo features (MLP branch) with a pretrained multilingual transformer over the description is an optional, time-boxed extension, attempted only if steps (1)--(2) are finished by week~8; if it wins the ablation, its embedding is fed to the boosting model as a feature rather than deploying the deep model directly. Each step is compared against the previous one in an ablation study. Pretrained orthophoto embeddings (SWISSIMAGE) remain optional as well.
+    \item \textbf{Spatial model (P3, core):} DSPRO1 captured location with hand-crafted $k$-nearest-neighbour price features. They are in-sample target aggregates (computed leave-one-out rather than out-of-fold, so undetected duplicates let a listing's own rent enter its neighbourhood median) and give no measure of how uncertain an estimate in a sparsely covered municipality is. DSPRO2 replaces them with tree boosting with mixed effects (GPBoost; Sigrist, JMLR 2022, developed at HSLU): boosting for the fixed effects, nested random intercepts canton $>$ district $>$ municipality, and a Gaussian process on the LV95 coordinates for micro-location, all estimated jointly (Vecchia approximation; runs on CPU). Municipalities with few listings are shrunk towards their district estimate rather than treated as missing, and the model returns a variance per listing. The comparison model is LightGBM on the same features with coordinates and out-of-fold target-encoded municipality (no kNN price features); the comparison uses a paired bootstrap CI of the MAE difference, MAE per listings-per-municipality bucket ($<$5, 5--20, $>$20) and Moran's~$I$ of the test residuals ($k$-nearest-neighbour weights, permutation test).
+    \item \textbf{Per-apartment prediction intervals (secondary):} instead of a constant error band, quantile models predict the rent at a grid of levels (5, 10, 25, 50, 75, 90, 95\,\%; LightGBM with a custom pinball objective, quantiles rearranged so they never cross), from which the 80\,\% interval, the 25th--75th listing band and an approximate market percentile are derived. If GPBoost wins the spatial comparison, its raw interval comes from the Gaussian predictive distribution ($\mu \pm z\sigma$ on the log scale, back-transformed), which makes the conformal score a $\sigma$-normalised residual. Either raw interval is calibrated on a separate calibration set with conformalized quantile regression (CQR), so the app has one interval scheme. \emph{Optional extension:} because a marginal calibration can hold 80\,\% overall while covering far fewer expensive apartments (the DSPRO1 constant band showed the same pattern), calibration can be done per group (Mondrian CQR by language region $\times$ predicted-rent band, i.e.\ quartile of the median prediction, with fallback to the parent group below about 100 calibration listings), and the coverage per group published in the app as a \emph{reliability map}.
+    \item \textbf{Quality-of-Life Index (QoLI, P2, core):} a composite indicator following the OECD/JRC \emph{Handbook on Constructing Composite Indicators} and the OECD Better Life Index (min--max normalisation, equal weights within dimensions, user-defined weights across dimensions). The core index uses public-transport quality, road and rail noise, OSM accessibility (Walk-Score-style distance decay) and green share; air quality, sunshine, tax burden and vacancy are added if time permits. Environmental thresholds are applied to the metrics actually available: BAFU $L_{r,\mathrm{Tag}}$/$L_{r,\mathrm{Nacht}}$ against the Swiss LSV impact thresholds (60/50~dB(A) day/night for residential zones); the WHO guideline (53~dB $L_{den}$) is only used after a documented approximation.
+    \item \textbf{Value score (secondary):} quality of life relative to price, to identify apartments that offer more than their rent suggests.
+    \item \textbf{Interactive app (Plotly Dash, secondary; the two entry points are built in this order, the map last):}
+    \begin{itemize}
+        \item \emph{Tenants -- Fair-Rent Check:} address, area, rooms, asking rent and optionally the description are entered. The app returns a verdict (\emph{below / within / above} the expected band), the asking rent positioned in the calibrated 80\,\% interval (e.g.\ ``2{,}150~CHF, likely between 1{,}900 and 2{,}450~CHF''), its approximate market percentile, the three largest SHAP drivers and the attributes recognised in the text that could justify a premium (renovated, lake view, lift). ``Fair'' means in line with current asking rents for comparable apartments, not the legal notion of a non-abusive rent (Art.~269~ff.\ OR). Inputs are not stored. The app gives no legal assessment; it links to the official BWO and tenant-association pages on contesting an initial rent (Art.~270 OR, possible in all cantons) and, in cantons with Formularpflicht, to the official form on which the previous rent is disclosed.
+        \item \emph{Landlords -- Price band and what-if:} address $\rightarrow$ GWR dwelling selection (pipeline reused from DSPRO1) $\rightarrow$ estimate with interval, a recommended listing band (25th--75th percentile) and the QoLI dimensions as location explanation. What-if switches for area, renovation, balcony and lift show the effect of each change. To make these switches trustworthy, the point and quantile models are trained with a monotone constraint on living area (a larger apartment never gets a lower estimate at otherwise equal inputs; rooms remain unconstrained). LightGBM's built-in quantile objective does not accept monotone constraints, which is why the pinball loss is implemented as a custom objective. The what-if view is always served by the constrained tree-based model.
+        \item \emph{Map (optional):} drill-down from canton to district and municipality with median CHF/m\textsuperscript{2} (cells with fewer than 20 listings are hidden), QoLI, value score and, if built, the reliability layer of the model. Street level is out of scope: it would expose near-individual prices and mostly empty cells.
+    \end{itemize}
+\end{itemize}
+
+\textbf{Research questions.}
+\begin{itemize}
+    \item RQ1: Does the listing text (structured attributes, embeddings, and optionally a fused transformer or aerial imagery) improve rent prediction over a strong tabular model, and is the improvement statistically significant?
+    \item RQ2: Does boosting with spatial mixed effects reduce the error in sparsely covered municipalities compared with boosting on coordinates and out-of-fold target-encoded municipality, and does it reduce the spatial autocorrelation of the residuals?
+    \item RQ3 (secondary): Do conformally calibrated quantile intervals reach their nominal coverage while being narrower than a constant band of the same empirical coverage; and, with the optional group calibration, does this also hold in every predicted-rent segment and language region?
+    \item RQ4: Can a valid quality-of-life index be constructed without ground truth, as measured by convergent validity with independent municipal indicators (BFS City Statistics; the BILANZ/IAZI municipal ranking if access can be obtained) and by rank stability under weight perturbation?
+    \item RQ5 (optional): Do tenants and landlords find the verdict, the price band and the value score useful? Answered by a small usability test (5--8 participants, think-aloud protocol on three prepared listings), reported qualitatively.
+\end{itemize}
+
+\textbf{Expected impact.} Tenants get a transparent, explainable verdict on whether an asking rent is in line with the market, and landlords a defensible price band before they publish a listing, both from the same models and with calibrated uncertainty instead of a single number. Methodologically, the project demonstrates a pre-registered evaluation plan, leakage-free validation (duplicate-aware splits, fixed hold-out test set, cross-validation), fit-for-purpose metrics (MAE in CHF per segment, interval coverage and width per group) and a documented risk self-assessment that uses the EU AI Act risk categories as a voluntary framework together with the revDSG obligations that apply.
+
+% --- Section 2 ---
+\section{Data Description}
+
+\textbf{Sources.}
+\begin{itemize}
+    \item \textbf{Listings:} the primary source is the existing DSPRO1 database (rentumo.ch snapshot); its description coverage is audited first. In DSPRO1 no portal answered our requests for data exports, so we collect additional listings ourselves with an incremental scraper on Swiss portals and property-manager websites, for non-commercial academic use only: robots.txt and rate limits are respected, technical blocks are not circumvented, no raw listing data is redistributed, and the terms of use of every source are recorded in the datasheet (comparis.ch, which blocked us in DSPRO1, remains excluded). We are aware that some portals' terms discourage systematic extraction; this legal grey area is documented as a project risk and discussed with the supervisor. A two-week pilot measures the weekly net gain of unique objects before the volume target is fixed. Data exports from HSLU research contacts or property managers are welcome but not planned for.
+    \item \textbf{Official geodata (free, BGDI/opendata.swiss):} BAFU sonBASE road and rail noise ($L_{r,\mathrm{Tag}}$/$L_{r,\mathrm{Nacht}}$ rasters, sampled at the building coordinate), BAFU PolluMap NO\textsubscript{2}/PM2.5 rasters (resolution and reference year documented per downloaded asset), ARE public-transport quality classes, BFS STATPOP/STATENT (100~m grid), BFS Arealstatistik (land use), BFS vacancy rate per municipality, ESTV tax burden per municipality, MeteoSwiss sunshine duration, GWR building and dwelling attributes via EGID, swissBOUNDARIES3D for the map hierarchy and the random-effect IDs. Every dataset is registered with source, terms and reference year.
+    \item \textbf{OpenStreetMap:} amenities (supermarkets, pharmacies, doctors, schools, childcare, gyms, restaurants, parks) for accessibility scores (ODbL).
+\end{itemize}
+
+\textbf{Volume.} DSPRO1: 9{,}994 extracted listings from one snapshot. DSPRO2 target: $\approx$20{,}000 unique objects after cross-portal deduplication, accumulated over several weeks; this is a target, not a guaranteed volume. A learning curve will show whether this volume is actually required and in which regions data is missing.
+
+\textbf{Target variables.} Primary: monthly net rent \texttt{price\_cold} in CHF (modelled on log scale; CHF/m\textsuperscript{2} as alternative). Secondary output: QoLI (0--100), which has no ground truth and is validated indirectly.
+
+\textbf{Feature types.} Numerical (area, decimal rooms, year built, auxiliary costs, distances, noise levels, pollutant concentrations, amenity counts), categorical (canton, municipality, property type), geospatial (LV95 coordinates, hectare grid IDs, nested canton/district/municipality IDs for the random effects), unstructured text (listing descriptions in German, French and Italian, modelled in German after translation) and the structured attributes extracted from it (floor, lift, balcony, view, renovation year, furnished, temporary lease).
+
+\textbf{Preprocessing needs.}
+\begin{itemize}
+    \item \textbf{Duplicate check:} first an audit of the existing DSPRO1 data (exact duplicates by listing ID and URL, near-duplicates by identical description text), then cross-portal deduplication for new data (postcode, normalised street, rooms, area $\pm$3~m\textsuperscript{2}, price $\pm$10\,\%). Repeated listings of the same object share one object ID, which is used as the group in every split and CV fold, so no apartment appears on both sides. Numbers before and after deduplication are reported.
+    \item \textbf{Schema fixes:} rooms are re-parsed as decimals (the DSPRO1 scraper stored integers, losing 2.5- and 3.5-room flats); listings with only a gross rent are flagged and excluded from the net-rent target unless auxiliary costs are given; new imports carry observation timestamps and object identity.
+    \item \textbf{Text preparation and anonymisation:} contact details (names, phone numbers, e-mail addresses, URLs) and prices are removed from the description by regex at ingestion; only the anonymised text is stored and versioned, so the model cannot read the target from the text and no personal data leaves our database (revDSG). A lightweight language-identification model (e.g.\ fastText \texttt{lid.176}) tags each description; French and Italian texts are machine-translated to German once (translation API, cached, original kept), so that all text models are trained on a single language instead of three. The original language is kept as a feature and as an evaluation slice. The data-processing terms of the translation and LLM providers are documented in the datasheet.
+    \item \textbf{Attribute extraction and label bootstrapping:} missing area and room values and the attribute schema are extracted from the anonymised, translated description; the LLM labels only the seed set (every field must cite its text evidence, results cached), the trained attribute model labels everything else. Both are evaluated against the about 300 hand-labelled listings (precision/recall per field, stratified by original language).
+    \item \textbf{Anomaly and regime filtering:} parking spaces, weekly prices and placeholder listings are removed via price-per-m\textsuperscript{2} outliers per municipality. Cooperative, cost-based or subsidised rents and shared-flat rooms are excluded from the market-rent target and reported separately, because they sit well below market and would otherwise contaminate the target; furnished and temporary listings are kept and flagged as attributes.
+    \item Spatial joins of all geodata via coordinates or EGID; DSPRO1 NULL-handling rules are kept.
+\end{itemize}
+
+\textbf{Validation protocol.} As a basic setup, the deduplicated data is split once, group-aware by object ID and stratified by canton and price band, into a training set (60\,\%), a calibration set (20\,\%) and a fixed hold-out test set (20\,\%). Conformal calibration uses the calibration set only; the test set is used only for the final comparison. Model selection and hyperparameter tuning use grouped $k$-fold cross-validation ($k=5$) on the training set. Two robustness checks are reported: a spatially grouped CV (by municipality) shows how well the model transfers to unseen regions, and listings collected after the data-freeze date (end of week~8) form a temporal test set that is used only for a drift check. A naive baseline (median CHF/m\textsuperscript{2} per municipality) is always reported alongside the models.
+
+\textbf{Pre-registered evaluation plan.} Before the first DSPRO2 training run, an evaluation plan (\texttt{EVALUATION\_PLAN.md} in the repository) is committed and tagged as \texttt{eval-plan-v1}. It fixes the primary metric (MAE in CHF on the frozen hold-out set), the secondary metrics, the hypotheses for RQ1--RQ3 with direction, test and $\alpha = 0.05$ (Holm correction across ablation stages), a minimum detectable effect from a bootstrap power simulation on the DSPRO1 per-listing errors for test-set sizes of 2{,}000--4{,}000 listings, the ablation grid, split seeds and the Optuna budget. The order of decisions is fixed too: RQ2 is decided first on the tabular+geo stage; the text ablation (RQ1) is then run only on the winning point model; intervals (RQ3) are built only for that model. The paired bootstrap CI of the MAE difference is the primary evidence, the Wilcoxon signed-rank test a rank-based secondary check. The ablation table (stage $\times$ metric with bootstrap CIs and $p$-values) is rendered automatically from the MLflow runs into the report and the model card, so no number is entered by hand; deviations from the plan are recorded in a changelog.
+
+\textbf{Quality constraints.} Listings are asking rents, not existing rents, and represent only the sources covered. Noise and air data are modelled rather than measured. OSM completeness varies by region. The DSPRO1 rentumo data carries no data licence and is used for training only: no listing text, price or address is redistributed, the public app exposes only model outputs and aggregates above the minimum count, and the licence status of every source is recorded in the datasheet, on which public deployment of any source-derived aggregate depends. All limitations are documented in an updated datasheet.
+
+% --- Section 3 ---
+\section{Cloud Service Integration}
+\begin{itemize}
+    \item \textbf{Neon (serverless PostgreSQL):} central database for listings, enrichment tables and extraction cache; already used in DSPRO1. The schema is extended (decimal rooms, observation timestamps, object identity, anonymised and translated description) before new imports. The free tier may not hold 20{,}000 objects with descriptions, geodata and observation history; the fallback is Neon's paid tier or a self-hosted PostgreSQL container on Azure.
+    \item \textbf{GitHub Actions:} CI (linting, unit tests for the feature pipeline, training smoke test) and the scheduled incremental scraping job. Free for our volume and tightly coupled to the repository.
+    \item \textbf{S3-compatible object storage (e.g.\ Cloudflare R2):} remote for DVC data snapshots, orthophoto tiles and MLflow artifacts; keeps large files out of Git while making every dataset version reproducible.
+    \item \textbf{GPU compute:} the team's own workstation GPUs (RTX~2000 class) cover attribute-model fine-tuning, embedding extraction and the optional transformer experiments; HSLU GPU resources or Google Colab serve as backup for longer runs. GPBoost and LightGBM run on CPU and need no GPU.
+    \item \textbf{LLM API (batch mode) and translation API:} the LLM labels only the seed set of about 2{,}000 anonymised descriptions for the attribute model, the translation API translates FR/IT descriptions once; both outputs are cached and versioned so results are reproducible and each text is processed only once. A local model via Ollama on our own GPU is used for prompt development and as fallback.
+    \item \textbf{Azure Container Apps (Consumption plan, Switzerland North):} public deployment of the Plotly Dash app (Fair-Rent Check, landlord price band, interactive map). The DSPRO1 prototype already runs this way: a Docker image published to the GitHub Container Registry, deployed by a GitHub Actions workflow (\texttt{azure-prototype.yml}, with deploy/start/stop/status/delete actions and a post-deploy health check) to a container app scaling between 0 and 1 instance with 0.25 vCPU and 0.5~GiB RAM, so idle time costs nothing. The setup was tested successfully in production at the HSLU AI event on 28 September 2026 and is reused unchanged for the Dash app; Hugging Face Spaces remains a fallback. Dash replaces the Streamlit prototype from DSPRO1 because it gives finer control over interactive Plotly figures and callbacks.
+\end{itemize}
+
+% --- Section 4 ---
+\section{Kanban Tool}
+We use \textbf{GitHub Projects}, because issues, pull requests and the board live next to the code.
+\begin{itemize}
+    \item \textbf{Columns:} Backlog $\rightarrow$ Ready $\rightarrow$ In Progress $\rightarrow$ Review $\rightarrow$ Done.
+    \item \textbf{Labels by workstream:} \texttt{data-pipeline}, \texttt{enrichment}, \texttt{modelling}, \texttt{spatial-model}, \texttt{text-features}, \texttt{uncertainty}, \texttt{evaluation}, \texttt{qol-index}, \texttt{app}, \texttt{docs}; priority labels follow a MoSCoW scheme.
+    \item \textbf{Workflow and milestones:} weekly planning at the start of each sprint; every task is an issue linked to a branch and a pull request; the other team member reviews before merging. Milestones follow the priorities: weeks 1--3 database export, duplicate audit, schema fixes and evaluation plan; weeks 4--7 baseline and text features (P1); weeks 6--9 QoLI (P2) and data freeze (end of week 8); weeks 8--11 spatial model (P3), then simple intervals and the two app views; weeks 12--14 evaluation, report and, if time permits, the optional extensions.
+    \item \textbf{Definition of Done:} tests pass in CI, experiments are logged in MLflow and follow the pre-registered evaluation plan, and documentation (README, datasheet, model card) is updated.
+\end{itemize}
+
+% --- Section 5 ---
+\section{Experiment Tracking Tool}
+We use \textbf{MLflow} with Neon PostgreSQL as backend store and object storage as artifact store, so that runs from all team members and from CI end up in one place.
+\begin{itemize}
+    \item \textbf{Parameters, model:} model type and hyperparameters (tuned with Optuna), feature set / ablation stage (tabular $\rightarrow$ +geo $\rightarrow$ +text features $\rightarrow$ +structured attributes $\rightarrow$ optional +transformer / +image), random-effect structure and GP covariance (GPBoost), monotone constraints, quantile levels, calibration method and groups.
+    \item \textbf{Parameters, data and plan:} split / CV scheme and fold assignment, deduplication version, data snapshot version (DVC hash), evaluation-plan version, Git commit, random seed, attribute-model version, LLM model and prompt version for label bootstrapping, translation version, QoLI weights and aggregation method.
+    \item \textbf{Metrics:} MAE and RMSE in CHF, MAPE, $R^2$, MAE per segment (region, price band, urban/rural, listings per municipality), pinball loss, prediction-interval coverage and mean width (overall, per calibration group and per realised price band), Moran's~$I$ of the test residuals and the variance decomposition canton/district/municipality/GP, bootstrap confidence intervals of the metrics and paired tests between models, extraction precision/recall per attribute, QoLI rank stability in the sensitivity analysis, and correlation with the external municipal indicators.
+    \item \textbf{Artifacts:} the automatically rendered ablation table, SHAP plots, interval-coverage plots and reliability map, residual maps, actual-vs-predicted plots, learning curves, prediction files, model card.
+    \item \textbf{Models:} all trained models are logged; the best model per stage is registered in the MLflow Model Registry and promoted to the deployed app.
+\end{itemize}
+
+\end{document}

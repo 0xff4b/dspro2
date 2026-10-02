@@ -1,149 +1,159 @@
-# Predicting Apartment Rental Prices in Switzerland
+# DSPRO2 – ML-Pipeline für Schweizer Mietpreise
 
-> HSLU DSPRO1 — Team 8 — Machine-Learning-Modell zur Vorhersage von Kaltmieten Schweizer Wohnungen aus Wohnungs-, Geo- und Lagedaten.
+> HSLU DSPRO2 HS26 · Team 6 · Elias Martinelli, Timo Schlumpf
+> Umsetzung der ML-Komponente aus dem Project Proposal
+> (`docs/project-proposal/`): räumliches Mixed-Effects-Boosting, Textmerkmale,
+> kalibrierte Intervalle pro Wohnung, Quality-of-Life-Index und Fair-Rent-Check.
 
----
+Das Repository ist ein uv-Projekt. DSPRO1 (Streamlit-Prototyp) ist abgeschlossen: Doku und
+Notebook liegen in `docs/archive/dspro1/`, das ausgewählte DSPRO1-Modell als Vergleichs-Baseline in
+`models/baseline/`.
 
-## Was macht das Projekt?
+## Schnellstart
 
-Wir trainieren mehrere Regressions-Modelle (Ridge, RandomForest, GradientBoosting, XGBoost, LightGBM, Stacking) auf einem selbst zusammengetragenen Datensatz Schweizer Mietwohnungen, vergleichen sie systematisch und bauen daraus eine produktionsnahe Pipeline (`RentPredictor`), die aus Wohnungs-Features eine Mietpreis-Vorhersage liefert — inklusive Modell-Karte, Stabilitäts-Check und Streamlit-Demo.
-
-**Endstand:** LightGBM mit KNN-Distance-Features erreicht **RMSE Eval = 393 CHF** und **R² = 0.751** auf dem 80/20-Split. Im Vergleich zur Dummy-Baseline (RMSE 847 CHF) ist das eine Reduktion von ≈ 54 %. Als Robustheits-Fallback gibt es eine Wide-Pipeline (4 Features, ~9'500 Zeilen) mit halbiertem Train/Eval-Gap.
-
-Demo: `make app` (oder `streamlit run src/app.py`) öffnet ein interaktives Frontend, in dem man Wohnungs-Parameter eingibt und sofort eine Preis-Schätzung bekommt.
-
-## Quick Start: klonen und starten
-
-Voraussetzungen: **Git und Python 3.12 (64 Bit)**. Die erste Installation braucht Internet und mehrere Minuten. Das Setup richtet App, JupyterLab, ML-Pakete und den Notebook-Kernel automatisch in der lokalen .venv ein und prüft die mitgelieferten Modelle.
-
-**Windows (PowerShell):**
-
-~~~powershell
-git clone https://github.com/0xff4b/dspro1.git
-py -3.12 dspro1/setup.py --start notebook
-~~~
-
-**Linux / WSL / macOS:**
-
-~~~bash
-git clone https://github.com/0xff4b/dspro1.git
-python3.12 dspro1/setup.py --start notebook
-~~~
-
-Auf macOS wird zusätzlich die OpenMP-Laufzeit benötigt: **brew install libomp**. Auf minimalen Linux-Systemen muss **libgomp1** installiert sein. Im Notebook den Kernel **DSPRO (.venv, Python 3.12)** auswählen.
-
-Für die **Streamlit-Demo** im zweiten Befehl **--start notebook** durch **--start app** ersetzen. Mit **--profile app --start app** werden nur die App-Abhängigkeiten installiert. Ohne **--start** wird nur die Umgebung vorbereitet. Eine manuelle Aktivierung ist nicht nötig.
-
-**App mit Docker**, ohne lokale Python-Installation (Git und laufendes Docker mit Compose vorausgesetzt):
-
-~~~bash
-git clone https://github.com/0xff4b/dspro1.git
-docker compose -f dspro1/compose.yaml up --build
-~~~
-
-Die App läuft unter http://localhost:8501. Stoppen mit Ctrl+C, Container entfernen mit **docker compose -f dspro1/compose.yaml down**. Diese Befehle starten keine Azure-Ressourcen.
-
-Eine kompatible bestehende .venv wird weiterverwendet. Eine defekte oder inkompatible Umgebung wird vor dem Neubau umbenannt und gesichert. Aktive Umgebungen ausserhalb des Projekts und eine vorhandene .python-version werden nicht geändert.
-
-**Probleme nach einem Pull?** Im Projektordner zuerst **python3.12 setup.py --doctor** ausführen (Windows: **py -3.12 setup.py --doctor**). Fehlende oder beschädigte Projektdateien lassen sich mit **--repair** aus dem lokalen Git-Stand wiederherstellen; vorhandene Inhalte werden vorher gesichert. Bewusst neu trainierte Modelle lassen sich mit **--allow-local-data** prüfen und verwenden.
-
-Details zu Update, Reparatur, Backups, Abhängigkeiten und optionalen Datenbank-/Scraper-Schritten: [Setup-Anleitung](docs/dspro1/SETUP.md). **make help** zeigt die Kurzbefehle unter Linux/macOS.
-
-## Projektstruktur
-
-```
-dspro1/
-├── README.md                       <- du bist hier
-├── Makefile                        <- Häufige Workflows: make setup / report / app / notebook / doctor
-├── requirements.txt                <- Eingabe für die vollständige Paketliste
-├── .gitignore
-├── docs/
-│   ├── dspro1/                     <- sämtliche bisherige Dokumentation
-│   │   ├── __templates/
-│   │   ├── ai-canvas/
-│   │   ├── data-sheet/
-│   │   ├── final-report/           <- LaTeX, PDF und PNG-Abbildungen in fig/
-│   │   ├── fig/poster-ai-event/    <- zusätzliche SVG-Exporte fürs Poster
-│   │   ├── presentation-final/
-│   │   ├── presentation-mid-term/
-│   │   ├── project-proposal/
-│   │   └── schemes/                <- drawio Architektur-Diagramme
-│   └── dspro2/                     <- vorbereitet für neue Arbeiten
-├── src/
-│   ├── app.py                      <- Streamlit Demo-App
-│   ├── notebooks/
-│   │   ├── model_v3_clean.ipynb        <- Hauptnotebook (21 Kapitel)
-│   │   ├── model_v3_clean.backup.ipynb <- Pre-Cleanup-Snapshot (Referenz)
-│   │   ├── humanize_notebook.py        <- Cleanup-Script (rewrite, drop, restyle)
-│   │   ├── fix_summary_blocks.py       <- Post-Cleanup-Patches für bekannte NameErrors
-│   │   └── models/                     <- gespeicherte .joblib-Artefakte
-│   │       ├── best_model_v3.joblib
-│   │       ├── rent_predictor_v3.joblib
-│   │       ├── lgbm_minimal_4feat.joblib
-│   │       ├── lgbm_wide_4feat.joblib
-│   │       └── requirements_used.txt
-│   ├── external-sources/           <- Daten-Sync-Notebooks + aufbereitete CSVs
-│   │   ├── gwr_egid_db_sync.ipynb
-│   │   ├── swisstopo_enrich_db_sync.ipynb
-│   │   ├── final_records.ipynb
-│   │   └── output_csv/
-│   │       ├── model.csv               <- Standard-Trainings-Set (~4'500 Wohnungen)
-│   │       └── model_wide.csv          <- Wide-Pipeline-Set (~9'500 Wohnungen)
-│   ├── scrapegoat/                 <- Rust-basierter Scraper (Hauptpipeline)
-│   └── rentables-scraper/          <- Rust-Scraper (erste Iteration)
+```bash
+uv sync --all-extras
+uv run python -m ipykernel install --sys-prefix --name dspro2 --display-name "DSPRO2 (uv, Python 3.12)"
+uv run jupyter lab notebooks/dspro2_ml_pipeline.ipynb   # Mietmodell (RQ1-RQ3)
+uv run jupyter lab notebooks/dspro2_qoli.ipynb          # Quality-of-Life-Index (P2, RQ4)
 ```
 
-## Was steckt im Hauptnotebook (`model_v3_clean.ipynb`)?
+Im Notebook den Kernel **DSPRO2 (uv, Python 3.12)** wählen (`--sys-prefix` registriert ihn nur in
+der Projekt-`.venv`; in VS Code alternativ direkt den Interpreter `.venv` wählen). Ohne `--all-extras` fehlen PyTorch,
+sentence-transformers und das Anthropic-SDK; die betroffenen Abschnitte werden dann übersprungen.
 
-21 Kapitel, linear aufgebaut nach dem Vorgehen, das wir auch real eingehalten haben — erst Daten anschauen, dann eine dumme Baseline, dann immer komplexere Modelle, dann Diagnose, dann End-to-End-Pipeline.
+## Laufmodi (Umgebungsvariablen)
 
-| Kapitel | Inhalt |
+| Variable | Werte | Wirkung |
+|---|---|---|
+| `DSPRO2_RUN_MODE` | `full` (Standard), `fast` | `fast` = kleine Budgets für einen Probelauf |
+| `DSPRO2_DATA_SOURCE` | `auto` (Standard), `db`, `csv` | `auto` nutzt die Datenbank, wenn `DATABASE_URL` gesetzt ist, sonst die DSPRO1-CSVs |
+| `DATABASE_URL` | Postgres-URL | Nur über `.env` oder Umgebung, nie im Code |
+| `DSPRO2_RUN_LLM` | `0` / `1` | Live-Attributextraktion mit Claude (kostet Geld, braucht `ANTHROPIC_API_KEY`) |
+| `DSPRO2_FETCH_OSM` | `0` / `1` | OSM-Amenities über Overpass laden (Prototyp im ML-Notebook; das QoLI-Notebook lädt sie immer, mit Cache) |
+| `DSPRO2_QOLI_REFRESH` | `0` / `1` | QoLI-Notebook: gecachte Hektar-Indikatoren neu berechnen |
+
+Nicht-interaktiv ausführen (Probelauf):
+
+```bash
+DSPRO2_RUN_MODE=fast DSPRO2_DATA_SOURCE=csv uv run jupyter nbconvert --to notebook --execute --inplace notebooks/dspro2_ml_pipeline.ipynb
+```
+
+## Daten
+
+- **Inserate:** Standardquelle ist die DSPRO1-Datenbank (Neon). Nur mit der Datenbank gibt es
+  Beschreibungstexte (`listing_details.description`) und damit RQ1 (Textablation) und die Attributextraktion.
+  Ohne `DATABASE_URL` fällt das Notebook auf den versionierten DSPRO1-Snapshot in `data/dspro1_snapshot/`
+  zurück (9'405 Inserate ohne Text, Stand 13.04.2026).
+- **Gemeinde-/Bezirks-/Kantonshierarchie:** swissBOUNDARIES3D 2026-01 (swisstopo, OGD), wird beim ersten Lauf
+  nach `data/external/` geladen.
+- **OSM-Amenities:** Overpass API, ODbL, Cache in `data/cache/osm_amenities.parquet`.
+- **QoLI-Geodaten (~1.8 GB, beim ersten Lauf des QoLI-Notebooks nach `data/external/qoli/`):**
+  ARE ÖV-Güteklassen 2026, BAFU sonBASE Strassen-/Bahnlärm (L<sub>r,Tag</sub>/L<sub>r,Nacht</sub>, 10 m),
+  BAFU PolluMap NO₂/PM2.5 2025, MeteoSchweiz Sonnenschein-Normwert 1991–2020, BFS Arealstatistik,
+  BFS Erreichbarkeit/STATPOP-Hektaren 2021 (alle data.geo.admin.ch, OGD), ESTV Steuerbelastung 2018,
+  BFS Leerwohnungsziffer 2026 und City Statistics (SDMX-API stats.swiss), BFS-Gemeindemutationen.
+  Quellen, Lizenzen und Bezugsjahre: `rentml.qoli_sources.SOURCES` bzw. `docs/results/qoli_sources.md`.
+
+Lokale Daten (`data/raw`, `external`, `interim`, `cache`, `app`), trainierte Modelle (`models/*.joblib`) und
+`mlruns/` sind in `.gitignore`. Versioniert sind nur der DSPRO1-Snapshot und die DSPRO1-Baseline.
+
+## Aufbau
+
+```
+.
+├── pyproject.toml, uv.lock      <- Abhängigkeiten (uv), Ruff- und pytest-Konfiguration
+├── src/rentml/                  <- gesamte Logik, von Notebooks und App importiert
+├── tests/                       <- pytest, deterministisch, ohne Netz/Datenbank
+├── notebooks/dspro2_ml_pipeline.ipynb   <- Mietmodell, Intervalle, Fair-Rent-Check
+├── notebooks/dspro2_qoli.ipynb          <- Quality-of-Life-Index nach OECD/JRC (RQ4)
+├── data/dspro1_snapshot/        <- DSPRO1-CSVs (versioniert, Offline-Fallback)
+├── data/ (sonst lokal)          <- raw, external, interim, cache, app/map (Karten-Bundle)
+├── models/baseline/             <- DSPRO1-Baseline (GradientBoosting ALL+geo, versioniert)
+├── models/ (sonst lokal)        <- RentModelBundle für die Dash-App
+├── pipelines/                   <- Rust-Scraper (scrapegoat, rentables-scraper), GWR/swisstopo-Anreicherung
+├── docs/                        <- Proposal, Evaluationsplan, fig/, results/, archive/dspro1/
+└── mlruns/ (lokal)              <- MLflow (SQLite-Backend)
+```
+
+### Module in `src/rentml/`
+
+| Modul | Aufgabe |
 |---|---|
-| 1–7   | Setup, Datenladen, Spalten-Rename, Datenqualität, Outlier-Filter, Feature Engineering, zentrale Feature-Sets (`FEATURES_SMALL/ENGINEERED/ALL`) |
-| 8     | Sauberer Train/Eval-Split (80/20, fixer `random_state=42`) |
-| 9–13  | Modell-Pipelines, fairer Modellvergleich, Train-vs-Eval-Plots, Overfitting-Diagnose, 5-Fold-CV |
-| 14    | Actual-vs-Predicted, Residuen-Analyse (Histogramm, Residuals-vs-Predicted, Q-Q) |
-| 15–17 | Fehleranalyse nach Preis-Quartilen, Feature Importance, Modell-Auswahl + Sanity-Predict |
-| 18    | Geo-Analyse: EDA, KMeans- und DBSCAN-Clustering, Group-Split-Robustheits-Check |
-| 19    | Iterative Verbesserungen: Tuning (RandomizedSearchCV + Halving), Stacking, Bootstrap-CIs, KNN-Distance-Features (entscheidender Hebel: 399 → 393 CHF), Conformal Prediction (MAPIE), Drift-Check, Bias-Analyse, Modell-Karte, regularisiertes LGBM auf reduzierten Feature-Sets, Wide-Pipeline |
-| 20    | End-to-End `RentPredictor`-Klasse, 60/20/20-Split, Hold-Out-Test (bis zum Schluss unangetastet), Data-Sheet |
-| 21    | Export aller Figures für den Final Report (`docs/dspro1/final-report/fig/`) |
+| `config` | Konstanten des Evaluationsplans (Seeds, Quantile, α), Pfade, `.env`-Laden |
+| `data` | Laden aus Neon (`DATABASE_URL`) oder den DSPRO1-CSVs, Schema-Fixes, Audit |
+| `dedup`, `cleaning` | Dublettenprüfung → `object_id`; Domänenfilter, CHF/m²-Ausreisser, Mietregime |
+| `geo`, `address` | swissBOUNDARIES3D: Kanton > Bezirk > Gemeinde, Sprachregion, Adress-Parsing |
+| `splits`, `evaluation` | 60/20/20-Split und CV-Folds (gruppiert); Metriken, Bootstrap, Wilcoxon, Holm, MDE |
+| `features`, `models` | DSPRO1-Features, hierarchisches OOF-Target-Encoding, LightGBM, Optuna |
+| `spatial`, `autocorrelation` | GPBoost (Random Effects + Vecchia-GP, zweistufig); Moran's I |
+| `text`, `extraction`, `extraction_llm` | Anonymisierung, Keywords, TF-IDF, Embeddings; Attribute per Regeln oder Claude |
+| `fusion` | PyTorch-Netz mit Entity Embeddings (Deep-Learning-Komponente) |
+| `quantile`, `conformal` | Monotone Quantil-LightGBM (Custom Pinball); CQR, Mondrian-CQR, Coverage |
+| `explain`, `rentcheck` | SHAP-Treiber; Fair-Rent-Check, What-if, `RentModelBundle` für die App |
+| `qoli`, `amenities` | Quality-of-Life-Index (OECD/JRC), OSM-Erreichbarkeit, Value Score |
+| `qoli_sources`, `qoli_layers`, `qoli_municipal` | QoLI-Quellenregister (Datasheet) und Downloads; Punktindikatoren aus Lärm-/Luft-/Sonnenrastern, ÖV-Güteklassen, Arealstatistik (`QoliLayers`); Leerstand, City Statistics, ESTV-Steuern mit Gemeindemutationen |
+| `qoli_robustness` | Cronbach-α, Perzentil-Normierung, geometrische Aggregation, Leave-one-out, Rangvergleich, bevölkerungsgewichtete Gemeindewerte |
+| `tracking`, `plotting` | MLflow (SQLite) mit JSONL-Fallback; Plot-Stil, Ablationstabelle, Markdown/LaTeX |
+| `mapdata`, `mapbundle` | Kartengeometrie (LV95, Coverage-Vereinfachung, Kanton/Bezirk/Gemeinde), Aggregate, Karten-Bundle |
+| `webapp` | Plotly-Dash-App; Startseite ist die Schweizer Karte |
+| `baseline` | Lädt die DSPRO1-Baseline und sagt auf DSPRO2-Daten vorher (nur vollständig angereicherte Objekte) |
 
-Die Backup-Datei `model_v3_clean.backup.ipynb` enthält den ungestrafften Pre-Cleanup-Stand mit allen Experimenten (Log-Target, Imputation, RFECV usw.), die im finalen Notebook nicht mehr drin sind.
+Abbildungen landen in `docs/fig/`, Tabellen (Ablation, Modellkarte) in `docs/results/`.
+Der vorregistrierte Evaluationsplan steht in `docs/EVALUATION_PLAN.md`.
 
-## Datenquellen
+## DSPRO1-Baseline
 
-- **GWR** (Gebäude- und Wohnungsregister) — siehe `src/external-sources/gwr_egid_db_sync.ipynb`
-- **swisstopo** (Geo-Koordinaten LV95, Höhe) — siehe `src/external-sources/swisstopo_enrich_db_sync.ipynb`
-- **Eigener Scraper** für rentumo.ch: `src/scrapegoat/` (Rust, Hauptpipeline) und `src/rentables-scraper/` (erste Iteration)
+Das in DSPRO1 ausgewählte Modell (GradientBoosting, Feature-Set `ALL+geo`, R² 0.712, MAE 281 CHF auf
+dem DSPRO1-Split) bleibt für den späteren Vergleich erhalten. Details: `models/baseline/README.md`.
 
-Aufbereitetes Trainings-Set: `src/external-sources/output_csv/model.csv` (~4'500 Wohnungen × 12 Spalten). Der Wide-Pipeline-Datensatz `model_wide.csv` enthält ~9'500 Zeilen mit nur 4 Kern-Features als Fallback, wenn die GWR-/swisstopo-Enrichment-Daten lückenhaft sind.
+```python
+from rentml.baseline import load_dspro1_baseline
+from rentml.config import ProjectPaths
 
-## Reproduzierbarkeit
+baseline = load_dspro1_baseline(ProjectPaths.discover().baseline_model)
+pred_chf = baseline.predict(test_df)   # NaN für Objekte ohne volle GWR/swisstopo-Anreicherung
+```
 
-- `RANDOM_STATE = 42` durchgängig in Notebook und App
-- `REFERENCE_YEAR = 2026` für `building_age`-Berechnung
-- requirements-full.lock und requirements-app.lock mit exakten Versionen und SHA-256-Prüfsummen
-- `models/rent_predictor_v3.joblib` enthält die finale Pipeline + Metadata (`training_date`, `python_version`, `test_metrics`)
-- `models/lgbm_wide_4feat.joblib` für die Wide-Pipeline-Fallback-Variante
-- Modell-Karte und Datasheet im Notebook (Kap. 19 / 20) sowie in `docs/dspro1/data-sheet/`
+Vergleichen auf demselben DSPRO2-Testset (z. B. mit `rentml.evaluation.paired_bootstrap_mae` auf den
+Objekten mit `baseline.applicable(test_df)`), nicht über die DSPRO1-Kennzahlen.
 
-## Wartung
+## RentLens (Dash-App)
 
-Das Setup verändert keine Notebook-Zellen und startet kein Training. Historische Skripte zur Notebook-Bereinigung liegen weiterhin unter src/notebooks/; sie gehören nicht zum normalen Setup.
+Eine Plattform mit den drei Einstiegspunkten aus dem Proposal:
 
-Paketänderungen werden in requirements.txt bzw. requirements-app.txt gepflegt und anschliessend in beide Lockdateien übernommen. GitHub Actions prüft den frischen Checkout, die vollständige Installation, Modellvorhersagen und die Wiederverwendung der Umgebung unter Windows, Linux und macOS. Die [Setup-Anleitung](docs/dspro1/SETUP.md) beschreibt die Pflege und Fehlerbehebung.
+| Seite | Für | Inhalt |
+|---|---|---|
+| `/` Karte (Startseite) | alle | Kanton/Bezirk/Gemeinde, Median CHF/m² ab 20 Objekten, Drill-down |
+| `/mietcheck` | Mietende | Fair-Rent Check: Urteil unter/im/über dem 80 %-Intervall, Marktperzentil, SHAP-Treiber, erkannte Textmerkmale, Links zu BWO und Mieterverband |
+| `/vermieter` | Vermietende | Angebotsband (25.–75. Perzentil), kalibriertes Intervall, What-if für Fläche und Zimmer |
 
-## Team und Lizenz
+```bash
+uv sync --extra app
+uv run python -m rentml.mapbundle --source csv   # einmalig: Karten-Bundle nach data/app/map
+uv run --extra app python -m rentml.webapp       # http://127.0.0.1:8050
+```
 
-- **Team 8 — DSPRO1 HSLU** (Hochschule Luzern)
-- Maintainer: Elias Martinelli
-- Co-Autor: Timo Schlumpf
-- Status: Final (Abgabe-Stand)
-- Lizenz: tbd (akademisches Projekt)
+- **Modell:** `models/rent_bundle_v1.joblib` aus dem Notebook (oder `$RENTML_MODEL_BUNDLE`, `--model`).
+  Fehlt es, läuft die Karte weiter und die beiden Werkzeuge zeigen einen Hinweis.
+- **Adresse → Merkmale** (`rentml.geoadmin`, `rentml.estimate`): Adresssuche, GWR-Gebäude (Baujahr,
+  Wohnungen, Grundfläche), ÖV-Erreichbarkeit, Solarklasse, Hektar-Bevölkerung und Höhe live von
+  api3.geo.admin.ch; Gemeinde/Bezirk/Kanton per Punkt-in-Polygon auf der Kartengeometrie; danach
+  dieselbe Feature-Pipeline wie im Training (Target-Encoding, abgeleitete Merkmale). Fehlende Werte
+  werden angezeigt und vom Modell als NaN behandelt.
+- **Unverzerrte Karte:** gezeichnet in LV95 (EPSG:2056), nicht Web Mercator; Grenzen gemeinsam
+  vereinfacht (`--tolerance`, Standard 25 m).
+- **Datenschutz/Lizenz:** Eingaben werden nicht gespeichert; das Karten-Bundle enthält nur Geometrien
+  und Aggregate. `data/app/` ist in `.gitignore`.
+- **Noch offen gegenüber dem Proposal:** QoLI, Value Score und Reliability-Layer auf der Karte
+  (über `aggregate_listings(extra_cols=...)` und `meta["extra_metrics"]` vorbereitet), What-if für
+  Renovation/Balkon/Lift (braucht Textmerkmale im Modell, RQ1) und Live-LLM-Extraktion (aktuell Regeln).
 
-## Azure-Prototyp mit Docker
+## Tests und Linting
 
-Bereitstellung, automatischer GitHub-Upload sowie Start/Stopp/Löschen: [Azure-Anleitung](docs/dspro1/AZURE.md).
+```bash
+uv run --extra app pytest     # ohne das Extra werden die App-Tests übersprungen
+ruff check src tests && ruff format --check src tests
+```
 
-Poster-Abbildungen werden zusätzlich als SVG nach docs/dspro1/fig/poster-ai-event/ exportiert. Details: [Abbildungsexport](docs/dspro1/fig/poster-ai-event/README.md).
+MLflow-UI: `uv run mlflow ui --backend-store-uri sqlite:///mlruns/mlflow.db`.

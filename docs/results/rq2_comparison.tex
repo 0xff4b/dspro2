@@ -1,0 +1,16 @@
+\begin{table}[htbp]
+\centering
+\caption{RQ2: paired cluster bootstrap of MAE(LightGBM-TE) $-$ MAE(GPBoost) on the test set}
+\label{tab:rq2_comparison}
+\begin{tabular}{lrrrrrrrrr}
+\toprule
+segment & mae\_a & mae\_b & diff & ci\_low & ci\_high & p\_bootstrap & p\_wilcoxon & n & rel\_diff\_pct \\
+\midrule
+all & 260.7 & 270.8 & -10.1 & -16.8 & -3.7 & 0.005 & 0.00752 & 1625 & -3.87 \\
+<5 & 260.4 & 274.5 & -14.1 & -25.0 & -3.7 & 0.007 & 0.0183 & 499 & -5.43 \\
+5-20 & 235.7 & 238.8 & -3.1 & -12.9 & 6.8 & 0.54 & 0.249 & 577 & -1.32 \\
+>20 & 287.1 & 300.9 & -13.8 & -28.4 & -0.592 & 0.0535 & 0.234 & 549 & -4.79 \\
+\bottomrule
+\end{tabular}
+\end{table}
+

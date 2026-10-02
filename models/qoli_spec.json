@@ -1,0 +1,193 @@
+{
+  "version": "qoli-20261002-215326",
+  "reference": "inhabited hectares, BFS STATPOP 2021 (winsor 1 %/99 %)",
+  "aggregation": "linear; equal weights within dimensions, user weights across dimensions",
+  "default_weights": {
+    "core": {
+      "transport": 1.0,
+      "noise": 1.0,
+      "amenities": 1.0,
+      "green": 1.0
+    },
+    "extended": {
+      "transport": 1.0,
+      "noise": 1.0,
+      "amenities": 1.0,
+      "green": 1.0,
+      "air": 1.0,
+      "sunshine": 1.0,
+      "tax": 1.0,
+      "housing": 1.0
+    }
+  },
+  "indicators": [
+    {
+      "name": "oev_class",
+      "dimension": "transport",
+      "higher_is_better": true,
+      "transform": "none",
+      "description": "ARE public-transport quality class 2026 (0-4)",
+      "index": "core",
+      "lo": 0.0,
+      "hi": 4.0
+    },
+    {
+      "name": "oev_stop_m",
+      "dimension": "transport",
+      "higher_is_better": false,
+      "transform": "log1p",
+      "description": "distance to the nearest classified stop (m)",
+      "index": "core",
+      "lo": 3.3119738657895264,
+      "hi": 8.154599059215036
+    },
+    {
+      "name": "noise_day_db",
+      "dimension": "noise",
+      "higher_is_better": false,
+      "transform": "none",
+      "description": "sonBASE road + rail L_r,Tag, façade (dB(A))",
+      "index": "core",
+      "lo": 8.199999809265137,
+      "hi": 68.58198294428476
+    },
+    {
+      "name": "noise_night_db",
+      "dimension": "noise",
+      "higher_is_better": false,
+      "transform": "none",
+      "description": "sonBASE road + rail L_r,Nacht, façade (dB(A))",
+      "index": "core",
+      "lo": 2.999999999999999,
+      "hi": 60.05652975386723
+    },
+    {
+      "name": "acc_total_all",
+      "dimension": "amenities",
+      "higher_is_better": true,
+      "transform": "none",
+      "description": "OSM accessibility of 8 categories incl. parks (0-100)",
+      "index": "core",
+      "lo": 0.5300556874720663,
+      "hi": 99.99994993325024
+    },
+    {
+      "name": "green_share",
+      "dimension": "green",
+      "higher_is_better": true,
+      "transform": "none",
+      "description": "green and wooded hectares within 300 m (share)",
+      "index": "core",
+      "lo": 0.0,
+      "hi": 0.6896551724137931
+    },
+    {
+      "name": "no2",
+      "dimension": "air",
+      "higher_is_better": false,
+      "transform": "none",
+      "description": "PolluMap NO2 annual mean 2025 (µg/m³)",
+      "index": "extended",
+      "lo": 3.0,
+      "hi": 19.0
+    },
+    {
+      "name": "pm25",
+      "dimension": "air",
+      "higher_is_better": false,
+      "transform": "none",
+      "description": "PolluMap PM2.5 annual mean 2025 (µg/m³)",
+      "index": "extended",
+      "lo": 3.0,
+      "hi": 11.0
+    },
+    {
+      "name": "sunshine",
+      "dimension": "sunshine",
+      "higher_is_better": true,
+      "transform": "none",
+      "description": "relative sunshine duration 1991-2020 (%)",
+      "index": "extended",
+      "lo": 39.353641510009766,
+      "hi": 57.04904556274414
+    },
+    {
+      "name": "tax_burden_pct",
+      "dimension": "tax",
+      "higher_is_better": false,
+      "transform": "none",
+      "description": "ESTV tax burden, single, CHF 80k (2018, %)",
+      "index": "extended",
+      "lo": 4.950237499999999,
+      "hi": 16.4692
+    },
+    {
+      "name": "vacancy_rate",
+      "dimension": "housing",
+      "higher_is_better": true,
+      "transform": "log1p",
+      "description": "BFS vacancy rate 2026 (%)",
+      "index": "extended",
+      "lo": 0.0,
+      "hi": 1.752672080520008
+    }
+  ],
+  "sources": {
+    "oev": {
+      "reference": "timetable 2026",
+      "file": "gueteklassen_oev_2026_2056.gpkg.zip"
+    },
+    "road_day": {
+      "reference": "2021 (computed 2023)",
+      "file": "laerm-strassenlaerm_tag_2056.tif"
+    },
+    "road_night": {
+      "reference": "2021 (computed 2023)",
+      "file": "laerm-strassenlaerm_nacht_2056.tif"
+    },
+    "rail_day": {
+      "reference": "2021 (computed 2023)",
+      "file": "laerm-bahnlaerm_tag_2056.tif"
+    },
+    "rail_night": {
+      "reference": "2021 (computed 2023)",
+      "file": "laerm-bahnlaerm_nacht_2056.tif"
+    },
+    "landuse": {
+      "reference": "survey flights 2013-2020 (release 2024)",
+      "file": "arealstatistik_2056.csv.zip"
+    },
+    "hectares": {
+      "reference": "2021",
+      "file": "erreichbarkeit_2056.csv"
+    },
+    "no2": {
+      "reference": "2025",
+      "file": "luftreinhaltung-stickstoffdioxid_2025_2056.tif"
+    },
+    "pm25": {
+      "reference": "2025",
+      "file": "luftreinhaltung-feinstaub_pm2_5_2025_2056.tif"
+    },
+    "sunshine": {
+      "reference": "1991-2020",
+      "file": "ogd-climate-normals-grid.snormy9120_ch01r.swiss.lv95_19910101000000_19910101000000.tif"
+    },
+    "tax": {
+      "reference": "2018 (latest file)",
+      "file": "statistik-belastung-gden-2018-de.xlsx"
+    },
+    "vacancy": {
+      "reference": "2026",
+      "file": ""
+    },
+    "city_statistics": {
+      "reference": "latest year per variable (2018-2025)",
+      "file": ""
+    },
+    "communes": {
+      "reference": "2018 -> 2026",
+      "file": "correspondances"
+    }
+  }
+}

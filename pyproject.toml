@@ -1,0 +1,69 @@
+[project]
+name = "rentml"
+version = "0.1.0"
+description = "DSPRO2 ML pipeline: Swiss rent prediction with spatial mixed effects, text features, calibrated intervals and a quality-of-life index."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.0,<2.4",
+    "pandas>=2.2,<3.0",
+    "scipy>=1.13",
+    "scikit-learn>=1.5,<1.8",
+    "lightgbm>=4.5,<5",
+    "gpboost>=1.5",
+    "optuna>=4.0",
+    "shap>=0.46",
+    "mlflow>=3.0",
+    "matplotlib>=3.9",
+    "seaborn>=0.13",
+    "joblib>=1.4",
+    "geopandas>=1.0",
+    "pyogrio>=0.10",
+    "shapely>=2.0",
+    "requests>=2.32",
+    "sqlalchemy>=2.0",
+    "psycopg2-binary>=2.9",
+    "python-dotenv>=1.0",
+    "pyarrow>=25.0.1",
+    "rasterio>=1.4",
+    "openpyxl>=3.1",
+]
+
+[project.optional-dependencies]
+text = ["sentence-transformers>=3.0"]
+dl = ["torch>=2.4"]
+llm = [
+    "anthropic>=1.8.0",
+]
+app = [
+    "dash>=4.4.1",
+    "flask-compress>=1.25",
+    "plotly>=7.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ipykernel>=6.29",
+    "jupyterlab>=4",
+    "nbclient>=0.10",
+    "nbformat>=5.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rentml"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

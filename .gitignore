@@ -8,80 +8,41 @@ Thumbs.db
 *.Zone.Identifier
 
 # =========================
-# Python
+# Python / uv
 # =========================
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-
-# Packaging
-*.egg
 *.egg-info/
-.eggs/
 build/
 dist/
-site/
-pip-log.txt
-pip-delete-this-directory.txt
-
-# =========================
-# Virtual environments
-# =========================
 .venv/
-venv/
-env/
-ENV/
-.python-version
+.venv-*/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
 # =========================
 # Jupyter
 # =========================
 .ipynb_checkpoints/
-.jupyter/
 
 # =========================
-# ML / Data Science
+# Data, models, tracking (see README "Daten")
 # =========================
+# The DSPRO1 snapshot in data/dspro1_snapshot/ is versioned on purpose (offline fallback).
+data/raw/
+data/external/
+data/interim/
+data/cache/
+# Generated map bundle for the Dash app (python -m rentml.mapdata)
+data/app/
+# Trained artefacts stay local; the DSPRO1 baseline in models/baseline/ is versioned.
 models/*.joblib
-models/*.pkl
-models/*.pickle
-models/*.h5
-models/requirements_used.txt
-
-# ML experiment tracking
+models/*.pt
 mlruns/
-.mlflow/
-
-# CatBoost
-**/catboost_info/
-
-# =========================
-# IDE / Editor
-# =========================
-.idea/
-.vscode/
-*.code-workspace
-*.swp
-*.swo
-
-# =========================
-# Testing / Coverage
-# =========================
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.nox/
-.mypy_cache/
-.ruff_cache/
-
-# =========================
-# Logs
-# =========================
-*.log
+*.db
 
 # =========================
 # LaTeX
@@ -99,32 +60,14 @@ htmlcov/
 *.lof
 
 # =========================
-# Project-specific
-# =========================
-src/notebooks/archive/
-
-# =========================
-# Rust
+# Rust (pipelines/)
 # =========================
 target/
-**/target/
 
 # =========================
-# Output / Generated files
+# Local leftovers
 # =========================
-output/
-outputs/
-results/
-artifacts/
 tmp/
-temp/
-cache/
-.cache/
-
-# Local Azure credentials
 .azure-local/
-
-# Local setup downloads and non-destructive recovery copies
-.setup-cache/
-.setup-backups/
-.venv.backup-*/
+# Leftover of the former nested layout (delete locally)
+/dspro2/
