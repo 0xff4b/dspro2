@@ -96,7 +96,8 @@ Lokale Daten (`data/raw`, `external`, `interim`, `cache`, `app`), trainierte Mod
 | `qoli_robustness` | Cronbach-α, Perzentil-Normierung, geometrische Aggregation, Leave-one-out, Rangvergleich, bevölkerungsgewichtete Gemeindewerte |
 | `tracking`, `plotting` | MLflow (SQLite) mit JSONL-Fallback; Plot-Stil, Ablationstabelle, Markdown/LaTeX |
 | `mapdata`, `mapbundle` | Kartengeometrie (LV95, Coverage-Vereinfachung, Kanton/Bezirk/Gemeinde), Aggregate, Karten-Bundle |
-| `webapp` | Plotly-Dash-App; Startseite ist die Schweizer Karte |
+| `market` | Marktplatz ohne Dash: Datenmodell, Store (SQLAlchemy), Modell-Fusion pro Inserat, QoLI-Lookup, Fotos, Demo-Daten |
+| `webapp` | Plotly-Dash-App: Marktplatz, Mietcheck, Preisband, Karte |
 | `baseline` | Lädt die DSPRO1-Baseline und sagt auf DSPRO2-Daten vorher (nur vollständig angereicherte Objekte) |
 
 Abbildungen landen in `docs/fig/`, Tabellen (Ablation, Modellkarte) in `docs/results/`.
@@ -120,22 +121,45 @@ Objekten mit `baseline.applicable(test_df)`), nicht über die DSPRO1-Kennzahlen.
 
 ## RentLens (Dash-App)
 
-Eine Plattform mit den drei Einstiegspunkten aus dem Proposal:
+Eine Plattform: Marktplatz für Mietwohnungen, in den die Modelle eingebaut sind, plus die
+Einstiegspunkte aus dem Proposal.
 
 | Seite | Für | Inhalt |
 |---|---|---|
-| `/` Karte (Startseite) | alle | Kanton/Bezirk/Gemeinde, Median CHF/m² ab 20 Objekten, Drill-down |
+| `/` Start | alle | Suche, Kennzahlen, neueste Inserate |
+| `/inserate` | Mietende | Filter (Ort, Kanton, Zimmer, Miete, Fläche, Ausstattung, «nur fair bewertet»), Sortierung nach Preis-Check, Value Score, QoLI |
+| `/inserat/<id>` | Mietende | Inserat mit Preis-Check (Urteil, 80 %-Intervall, Marktperzentil, SHAP-Treiber), QoLI der Gemeinde, Value Score, Bewerbungsformular |
+| `/inserieren` | Vermietende | Inserat erfassen (Fotos, Ausstattung) mit Preisassistent: Angebotsband, Intervall, What-if, Dublettenhinweis |
+| `/verwalten/<token>` | Vermietende | Bewerbungen nach Eingang, Status setzen, Preis ändern und neu prüfen, pausieren, löschen |
+| `/bewerbung/<token>` | Mietende | Status der eigenen Bewerbung, zurückziehen (löscht die Daten) |
 | `/mietcheck` | Mietende | Fair-Rent Check: Urteil unter/im/über dem 80 %-Intervall, Marktperzentil, SHAP-Treiber, erkannte Textmerkmale, Links zu BWO und Mieterverband |
 | `/vermieter` | Vermietende | Angebotsband (25.–75. Perzentil), kalibriertes Intervall, What-if für Fläche und Zimmer |
+| `/karte` | alle | Kanton/Bezirk/Gemeinde, Median CHF/m² ab 20 Objekten, Drill-down |
 
 ```bash
 uv sync --extra app
 uv run python -m rentml.mapbundle --source csv   # einmalig: Karten-Bundle nach data/app/map
+uv run python -m rentml.market.seed --n 36       # optional: synthetische Demo-Inserate
 uv run --extra app python -m rentml.webapp       # http://127.0.0.1:8050
 ```
 
 - **Modell:** `models/rent_bundle_v1.joblib` aus dem Notebook (oder `$RENTML_MODEL_BUNDLE`, `--model`).
-  Fehlt es, läuft die Karte weiter und die beiden Werkzeuge zeigen einen Hinweis.
+  Fehlt es, laufen Karte und Marktplatz weiter (Inserate ohne Preis-Check), die beiden Werkzeuge
+  zeigen einen Hinweis.
+- **Marktplatz** (`rentml.market`, Seiten in `rentml.webapp.market_*`): Beim Publizieren werden
+  Gebäude- und Lagedaten geholt, die Angebotsmiete vom Mietmodell bewertet und das Ergebnis mit dem
+  Inserat gespeichert; die Inseratseite rechnet nichts neu. Merkmale kommen aus der regelbasierten
+  Extraktion, der Dublettenhinweis aus `rentml.dedup`, der Value Score aus `rentml.qoli.value_score`
+  über die aktiven Inserate, das QoLI aus `data/app/qoli_municipalities.parquet`
+  (oder `$RENTML_QOLI_TABLE`; Gemeindemittel, nicht hektargenau).
+- **Datenbank:** SQLite in `data/app/marketplace.db` (nicht versioniert), produktiv
+  `RENTML_MARKET_DB=<SQLAlchemy-URL>` (z. B. Neon, Tabellen `market_*`). Tabellen entstehen beim
+  ersten Zugriff; Schema-Migrationen gibt es noch nicht (bei Schemaänderung Datei löschen).
+- **Zugriff ohne Konto:** Publizieren und Bewerben liefern je einen geheimen Link; gespeichert wird
+  nur der SHA-256-Hash des Tokens. Der Link wird einmal angezeigt, E-Mail-Versand fehlt noch.
+- **Fotos:** JPG/PNG/WebP, höchstens 6 à 6 MB, werden als JPEG neu kodiert (ohne EXIF/GPS) und nur
+  für aktive Inserate ausgeliefert.
+- **Demo-Daten** sind erfunden und als «Demo» markiert; gescrapte Inserate werden nicht angezeigt.
 - **Adresse → Merkmale** (`rentml.geoadmin`, `rentml.estimate`): Adresssuche, GWR-Gebäude (Baujahr,
   Wohnungen, Grundfläche), ÖV-Erreichbarkeit, Solarklasse, Hektar-Bevölkerung und Höhe live von
   api3.geo.admin.ch; Gemeinde/Bezirk/Kanton per Punkt-in-Polygon auf der Kartengeometrie; danach
@@ -143,11 +167,18 @@ uv run --extra app python -m rentml.webapp       # http://127.0.0.1:8050
   werden angezeigt und vom Modell als NaN behandelt.
 - **Unverzerrte Karte:** gezeichnet in LV95 (EPSG:2056), nicht Web Mercator; Grenzen gemeinsam
   vereinfacht (`--tolerance`, Standard 25 m).
-- **Datenschutz/Lizenz:** Eingaben werden nicht gespeichert; das Karten-Bundle enthält nur Geometrien
-  und Aggregate. `data/app/` ist in `.gitignore`.
-- **Noch offen gegenüber dem Proposal:** QoLI, Value Score und Reliability-Layer auf der Karte
-  (über `aggregate_listings(extra_cols=...)` und `meta["extra_metrics"]` vorbereitet), What-if für
-  Renovation/Balkon/Lift (braucht Textmerkmale im Modell, RQ1) und Live-LLM-Extraktion (aktuell Regeln).
+- **Datenschutz/Lizenz:** Mietcheck und Preisband speichern keine Eingaben. Der Marktplatz speichert,
+  was Nutzende ausdrücklich publizieren oder einreichen (Inserat, Kontakt, Bewerbung), bis es
+  gelöscht wird; Kontaktdaten im Beschrieb werden entfernt. Bewerbende werden vom Modell weder
+  bewertet noch sortiert. Vor einem öffentlichen Betrieb mit echten Personendaten fehlen
+  Datenschutzerklärung, AGB und die Risiko-Selbstbewertung (revDSG, EU AI Act). `data/app/` ist in
+  `.gitignore`.
+- **Noch offen** (in der App als graue «Geplant»-Boxen): Konto/Login, E-Mail-Benachrichtigung,
+  Nachrichten, Besichtigungstermine, Dokumenten-Upload, Suchabo, Merkliste, Kartenansicht der
+  Treffer, GWR-Wohnungsauswahl, hektargenaues QoLI mit eigenen Gewichten, Inserat bearbeiten,
+  Moderation/Spam-Schutz, Mehrsprachigkeit; ausserdem QoLI, Value Score und Reliability-Layer auf
+  der Karte, What-if für Renovation/Balkon/Lift (braucht Textmerkmale im Modell, RQ1) und das
+  eigene Attributmodell statt Regeln.
 
 ## Tests und Linting
 

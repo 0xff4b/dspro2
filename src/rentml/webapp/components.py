@@ -86,14 +86,50 @@ def decode_address(value: str) -> Address:
 def interval_figure(estimate: Estimate, asking: float | None = None) -> go.Figure:
     """Horizontal bar: calibrated interval, listing band (25-75 %), estimate and asking rent."""
     p = estimate.prediction
-    lo, hi = float(p["lo"]), float(p["hi"])
+    return band_figure(
+        lo=float(p["lo"]),
+        hi=float(p["hi"]),
+        q25=float(p["q25"]),
+        q75=float(p["q75"]),
+        expected=float(p["expected"]),
+        coverage=estimate.coverage,
+        asking=asking,
+    )
+
+
+def band_figure(
+    *,
+    lo: float,
+    hi: float,
+    q25: float,
+    q75: float,
+    expected: float,
+    coverage: float,
+    asking: float | None = None,
+    asking_label: str = "Ihre Miete",
+) -> go.Figure:
+    """The interval bar from plain CHF values (e.g. the model snapshot stored with a listing).
+
+    Args:
+        lo: Lower bound of the calibrated interval.
+        hi: Upper bound of the calibrated interval.
+        q25: Lower end of the listing band.
+        q75: Upper end of the listing band.
+        expected: Point estimate.
+        coverage: Nominal coverage of the interval (for the legend).
+        asking: Asking rent to mark (``None`` = no marker).
+        asking_label: Legend label of the asking rent.
+
+    Returns:
+        The figure.
+    """
     pad = 0.12 * (hi - lo)
     fig = go.Figure()
-    _band(fig, lo, hi, "#DCEBF8", f"{estimate.coverage:.0%}-Intervall")
-    _band(fig, float(p["q25"]), float(p["q75"]), "#8EC3EC", "mittlere 50 % (Angebotsband)")
-    _marker(fig, float(p["expected"]), COLORS["dark"], "Schätzung", "diamond")
+    _band(fig, lo, hi, "#DCEBF8", f"{coverage:.0%}-Intervall")
+    _band(fig, q25, q75, "#8EC3EC", "mittlere 50 % (Angebotsband)")
+    _marker(fig, expected, COLORS["dark"], "Schätzung", "diamond")
     if asking is not None:
-        _marker(fig, asking, COLORS["reference"], "Ihre Miete", "line-ns-open")
+        _marker(fig, asking, COLORS["reference"], asking_label, "line-ns-open")
     low = min(lo, asking or lo) - pad
     high = max(hi, asking or hi) + pad
     fig.update_layout(

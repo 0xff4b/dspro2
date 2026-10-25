@@ -1,4 +1,4 @@
-"""Start page: interactive map of Switzerland by canton, district or municipality."""
+"""Rent map (``/karte``): interactive map of Switzerland by canton, district or municipality."""
 
 from collections.abc import Callable
 
@@ -134,7 +134,7 @@ def layout(index: UnitIndex, metrics: list[Metric], meta: dict) -> html.Div:
 
 
 def register(app: Dash, bundle: MapBundle, geojson_url: Callable[[str], str]) -> None:
-    """Register the page (path ``/``) and its callbacks on ``app``.
+    """Register the page (path ``/karte``) and its callbacks on ``app``.
 
     Args:
         app: Dash app created with ``use_pages=True``.
@@ -147,10 +147,10 @@ def register(app: Dash, bundle: MapBundle, geojson_url: Callable[[str], str]) ->
     min_count = int(bundle.meta.get("min_count", 20))
     dash.register_page(
         "home",
-        path="/",
+        path="/karte",
         name="Karte",
         title="RentLens · Karte",
-        order=0,
+        order=4,
         layout=layout(index, metrics, bundle.meta),
     )
 

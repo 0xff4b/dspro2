@@ -134,7 +134,7 @@ def register(app: Dash, services: Services) -> None:
         name="Mietcheck",
         title="RentLens · Fair-Rent Check",
         layout=layout(services),
-        order=1,
+        order=2,
     )
     if services.estimator is None:
         return

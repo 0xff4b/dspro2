@@ -1,13 +1,16 @@
 """RentLens: Dash app factory, GeoJSON endpoint and command-line entry point.
 
-One platform with the entry points of the proposal: the map (start page), the Fair-Rent Check
-for tenants and the price band with what-if for landlords. The map bundle is read from
+One platform: the marketplace (start page, listing search, publishing with the price assistant,
+applications; see :mod:`rentml.market`) plus the entry points of the proposal: the Fair-Rent
+Check for tenants, the price band with what-if for landlords and the rent map. The map bundle is
+read from
 ``$RENTML_MAP_BUNDLE`` or ``dspro2/data/app/map`` (``uv run python -m rentml.mapbundle``), the
 model bundle from ``$RENTML_MODEL_BUNDLE`` or ``dspro2/models/rent_bundle_v1.joblib`` (written by
 the notebook). Without a model the map still works and the tools show a notice.
 """
 
 import argparse
+import dataclasses
 import json
 import logging
 import os
@@ -22,7 +25,18 @@ from rentml.config import ProjectPaths
 from rentml.estimate import RentEstimator
 from rentml.mapbundle import MapBundle, default_bundle_dir
 from rentml.mapdata import LEVELS
-from rentml.webapp import home, landlord, tenant
+from rentml.market.service import default_market
+from rentml.market.store import MarketStore
+from rentml.webapp import (
+    home,
+    landlord,
+    market_browse,
+    market_detail,
+    market_manage,
+    market_publish,
+    tenant,
+)
+from rentml.webapp.market_ui import PHOTO_ROUTE, planned
 from rentml.webapp.services import Services, live_services
 
 logger = logging.getLogger(__name__)
@@ -35,6 +49,12 @@ APP_TITLE = "RentLens"
 APP_TAGLINE = "Mietpreise der Schweiz, transparent erklärt"
 GEOJSON_ROUTE = "/map-data/<level>.geojson"
 CACHE_SECONDS = 86_400
+MAX_REQUEST_BYTES = 64 * 1024 * 1024  # six photos as base64 in one callback request
+FOOTER_TEXT = (
+    "Prototyp DSPRO2, HSLU. Mietcheck und Preisband speichern keine Eingaben; Inserate und "
+    "Bewerbungen bleiben gespeichert, bis sie gelöscht werden. Modellurteile sind statistische "
+    "Schätzungen, keine Rechtsberatung."
+)
 
 
 def resolve_bundle_dir(bundle_dir: Path | None = None) -> Path:
@@ -69,8 +89,9 @@ def create_app(
     bundle_dir: Path | None = None,
     services: Services | None = None,
     model_path: Path | None = None,
+    store: MarketStore | None = None,
 ) -> Dash:
-    """Create RentLens with the map as start page.
+    """Create RentLens with the marketplace as start page.
 
     Args:
         bundle: Map bundle; ``None`` = load it from ``bundle_dir``.
@@ -78,6 +99,7 @@ def create_app(
         services: Estimator and geo.admin services; ``None`` = live services with the model
             from ``model_path`` (see :func:`resolve_model_path`).
         model_path: Model bundle file.
+        store: Marketplace database; ``None`` = ``$RENTML_MARKET_DB`` or ``data/app``.
 
     Returns:
         The configured app (``app.server`` is the Flask server for WSGI hosting).
@@ -95,9 +117,20 @@ def create_app(
         update_title=None,
         compress=True,
         suppress_callback_exceptions=True,
+        # Secret management links must not leak to other sites via the Referer header.
+        meta_tags=[{"name": "referrer", "content": "same-origin"}],
     )
+    app.server.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
     if services is None:
         services = live_services(load_estimator(resolve_model_path(model_path), bundle))
+    if services.market is None:
+        market = default_market(bundle, services.estimator, services.lookup, store=store)
+        services = dataclasses.replace(services, market=market)
+    market_browse.register(app, services.market)
+    market_detail.register(app, services.market)
+    market_publish.register(app, services)
+    market_manage.register(app, services.market)
+    _serve_photos(app, services.market.store)
     home.register(app, bundle, _serve_geojson(app, bundle))
     tenant.register(app, services)
     landlord.register(app, services)
@@ -127,25 +160,50 @@ def _serve_geojson(app: Dash, bundle: MapBundle) -> Callable[[str], str]:
     return url
 
 
+def _serve_photos(app: Dash, store: MarketStore) -> None:
+    """Serve the re-encoded listing photos (active listings only)."""
+
+    def photo(photo_id: int) -> Response:
+        content = store.photo(photo_id)
+        if content is None:
+            abort(404)
+        response = Response(content, mimetype="image/jpeg")
+        response.headers["Cache-Control"] = f"public, max-age={CACHE_SECONDS}"
+        return response
+
+    app.server.add_url_rule(PHOTO_ROUTE, "market_photo", photo)
+
+
 def _shell() -> html.Div:
+    pages = [p for p in dash.page_registry.values() if p.get("nav", True)]
     nav = [
         dcc.Link(page["name"], href=page["relative_path"], className="nav-link")
-        for page in sorted(dash.page_registry.values(), key=lambda p: p.get("order", 99))
+        for page in sorted(pages, key=lambda p: p.get("order", 99))
     ]
+    login = html.Span("Anmelden", className="nav-planned", title="Geplant: Konto und Login")
     header = html.Header(
         [
-            html.Div(
+            dcc.Link(
                 [
                     html.Div(APP_TITLE, className="brand-title"),
                     html.Div(f"{APP_TAGLINE} · DSPRO2 HSLU", className="brand-sub"),
                 ],
+                href="/",
                 className="brand",
             ),
-            html.Nav(nav, className="nav"),
+            html.Nav([*nav, login], className="nav"),
         ],
         className="app-header",
     )
-    return html.Div([header, html.Main(dash.page_container, className="app-main")])
+    planned_boxes = [
+        planned("Datenschutzerklärung und AGB", "Rechtlich geprüfte Texte vor dem Betrieb."),
+        planned("Français · Italiano · English", "Mehrsprachige Oberfläche."),
+    ]
+    footer = html.Footer(
+        [html.P(FOOTER_TEXT), html.Div(planned_boxes, className="planned-grid")],
+        className="app-footer",
+    )
+    return html.Div([header, html.Main(dash.page_container, className="app-main"), footer])
 
 
 def main(argv: Sequence[str] | None = None) -> None:

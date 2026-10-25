@@ -7,23 +7,26 @@ from functools import lru_cache
 from rentml import geoadmin
 from rentml.estimate import RentEstimator
 from rentml.geoadmin import Address, LocationData
+from rentml.market.service import Market
 
 LOCATION_CACHE_SIZE = 256
 
 
 @dataclass(frozen=True)
 class Services:
-    """What the tenant and landlord pages need.
+    """What the pages need.
 
     Attributes:
         estimator: Model wrapper; ``None`` if no model bundle is deployed.
         search: Address suggestions for a free-text query.
         lookup: Building and location inputs for an address (public geodata only).
+        market: Marketplace service; ``None`` = the app builds the default one.
     """
 
     estimator: RentEstimator | None
     search: Callable[[str], list[Address]]
     lookup: Callable[[Address], LocationData]
+    market: Market | None = None
 
 
 def live_services(estimator: RentEstimator | None) -> Services:

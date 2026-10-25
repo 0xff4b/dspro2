@@ -174,6 +174,28 @@ def anonymize(text: str | None) -> str:
     return out.strip()
 
 
+def strip_contacts(text: str | None, placeholder: str = "[…]") -> str:
+    """Remove e-mail addresses, URLs, IBANs and phone numbers, but keep amounts and names.
+
+    For texts that are published (marketplace listings): contact runs through the platform,
+    while amounts such as auxiliary costs stay readable. Same patterns and order as
+    :func:`anonymize`.
+
+    Args:
+        text: Raw text; ``None`` or non-string values give an empty string.
+        placeholder: Replacement for every removed item.
+
+    Returns:
+        The text without contact data.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return ""
+    out = text
+    for pattern in (_EMAIL_RE, _URL_RE, _IBAN_RE, _PHONE_RE):
+        out = pattern.sub(placeholder, out)
+    return out.strip()
+
+
 def anonymize_series(s: pd.Series) -> pd.Series:
     """Anonymise a Series of descriptions.
 

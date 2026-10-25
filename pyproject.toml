@@ -38,6 +38,7 @@ llm = [
 app = [
     "dash>=4.4.1",
     "flask-compress>=1.25",
+    "pillow>=11",
     "plotly>=7.1.0",
 ]
 

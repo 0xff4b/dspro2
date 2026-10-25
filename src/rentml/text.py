@@ -25,6 +25,7 @@ from rentml._anonymize import anonymize as anonymize
 from rentml._anonymize import anonymize_series as anonymize_series
 from rentml._anonymize import price_leak_mask as price_leak_mask
 from rentml._anonymize import price_leak_rate as price_leak_rate
+from rentml._anonymize import strip_contacts as strip_contacts
 from rentml.config import RANDOM_STATE
 
 logger = logging.getLogger(__name__)

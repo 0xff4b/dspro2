@@ -108,10 +108,10 @@ def register(app: Dash, services: Services) -> None:
     dash.register_page(
         "landlord",
         path="/vermieter",
-        name="Vermieter",
+        name="Preisband",
         title="RentLens · Preisband",
         layout=layout(services),
-        order=2,
+        order=3,
     )
     if services.estimator is None:
         return
