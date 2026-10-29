@@ -81,6 +81,11 @@ Every stage is logged in MLflow (stage tag) and the ablation table is rendered a
   rounds is chosen by early stopping on a grouped validation fold inside train (learning rate 0.01, no line
   search). Reason: joint re-estimation in every round took ~12 s per round and, with gpboost's default
   starting values, collapsed the error variance to ~0 because several listings share building coordinates.
+- GPBoost 1.7.4 workarounds (verified): with grouped random effects plus a Vecchia GP the error variance is
+  an auxiliary parameter; predictive variances and `valid_sets` early stopping abort the process when one
+  call holds more points than training group levels, so variances are computed in chunks and early stopping
+  is our own; the `"cholesky"` solver is >40x faster than the default; learning rates near 0.1 diverge
+  without line search.
 - Fused neural network: fixed architecture, early stopping on a grouped validation split inside train.
 
 ## Changelog
@@ -113,3 +118,11 @@ Every stage is logged in MLflow (stage tag) and the ablation table is rendered a
   (`rentml.config.MONOTONE_CONSTRAINTS_METHOD`). The `"advanced"` method of LightGBM 4.7 let the
   estimate drop for 15–29 of 200 test flats on a fine area grid; `"intermediate"` and `"basic"` were
   exact with the same calibration MAE (261.6 / 261.1 vs. 261.8 CHF).
+- v1 (draft), before tagging: implementation switched to standard libraries where they exist.
+  Target encoding is scikit-learn's `TargetEncoder` (per key, cross-fitted, `smooth="auto"`)
+  instead of the hand-written hierarchical encoder (pseudo-count 20); the hierarchy still reaches
+  the trees through separate canton, district and municipality encodings. Paired bootstrap CIs use
+  `scipy.stats.bootstrap` on per-object error differences (one test row per object after the
+  duplicate audit, so no cluster resampling is needed), Holm uses `statsmodels`, Moran's I uses
+  `esda`/`libpysal`. The duplicate audit links building matches only with equal rooms (8'335 instead
+  of 8'298 objects on the DSPRO1 snapshot). Numbers in `docs/results` were regenerated afterwards.

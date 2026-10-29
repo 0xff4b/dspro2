@@ -12,7 +12,7 @@
 | Training data | ~4.5k fully enriched rentumo.ch listings (snapshot 2026-04-13) |
 | Pickled with | scikit-learn 1.6.1 (loads with 1.7.x; version warning is logged) |
 
-Use: `rentml.baseline.load_dspro1_baseline(ProjectPaths.discover().baseline_model).predict(test_df)`.
-Predictions are NaN for objects without full GWR/swisstopo enrichment. Note that the DSPRO1 split
+Use: `art = joblib.load(path)` gives a dict with `model`, `geo_pipe` (predicts `geo_cluster` from
+east/north) and `features` (training order). Apply it only to objects with all features present. Note that the DSPRO1 split
 was random and not grouped by object, so its R² is not directly comparable with DSPRO2 test
 metrics; compare both models on the same DSPRO2 test set instead.
