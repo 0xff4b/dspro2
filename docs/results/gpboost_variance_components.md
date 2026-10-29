@@ -1,10 +1,9 @@
-| component | parameter | variance | share |
-|:---|:---|---:|---:|
-| residual | error_variance | 0.04053 | 0.465 |
-| canton | Group_1 | 0.01519 | 0.174 |
-| district | Group_2 | 0.0008408 | 0.010 |
-| municipality | Group_3 | 0.002162 | 0.025 |
-| gp_variance | GP_var | 0.02849 | 0.327 |
-| gp_range | GP_range | 13.41 | – |
-| gp_practical_range | derived | 36.73 | – |
-
+| component          |   variance |   share |
+|:-------------------|-----------:|--------:|
+| canton             |  0.02557   |   0.278 |
+| district           |  0.0007058 |   0.008 |
+| municipality       |  0.002308  |   0.025 |
+| gp_variance        |  0.02335   |   0.254 |
+| gp_range           | 12.94      |   –     |
+| residual           |  0.03994   |   0.435 |
+| gp_practical_range | 35.44      |   –     |

@@ -1,11 +1,10 @@
-<!-- RQ2 winner lgbm_te, data csv, run full, session 20261002-221320 -->
-| method | source | calibration | primary | calib_coverage | coverage | cp_low | cp_high | below | above | mean_width | median_width | interval_score | min_cell_coverage | cells_below_nominal | n_cells | const_width_same_cov | width_ratio |
-|:---|:---|:---|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| raw_quantile | quantile | raw q10-q90 | False | 0.821 | 0.810 | 0.790 | 0.829 | 0.085 | 0.105 | 857 | 723 | 1354 | 0.755 | 0 | 12 | 723 | 1.185 |
-| global_quantile | quantile | CQR, global | False | 0.801 | 0.786 | 0.766 | 0.806 | 0.103 | 0.111 | 819 | 691 | 1352 | 0.736 | 1 | 12 | 694 | 1.180 |
-| mondrian_quantile | quantile | CQR, Mondrian | True | 0.809 | 0.802 | 0.782 | 0.822 | 0.099 | 0.098 | 851 | 701 | 1357 | 0.769 | 0 | 12 | 718 | 1.185 |
-| raw_gpboost | gpboost | raw Gaussian mu +/- z sigma | False | 0.881 | 0.882 | 0.866 | 0.898 | 0.059 | 0.058 | 975 | 898 | 1353 | 0.769 | 0 | 12 | 966 | 1.009 |
-| global_gpboost | gpboost | sigma-normalised, global | False | 0.801 | 0.804 | 0.784 | 0.823 | 0.104 | 0.092 | 786 | 724 | 1321 | 0.692 | 1 | 12 | 720 | 1.092 |
-| mondrian_gpboost | gpboost | sigma-normalised, Mondrian | False | 0.812 | 0.803 | 0.783 | 0.822 | 0.108 | 0.089 | 815 | 722 | 1315 | 0.692 | 1 | 12 | 718 | 1.135 |
-| constant_conformal | lgbm_te | constant +/- h (conformal) | False | 0.801 | 0.822 | 0.802 | 0.840 | 0.076 | 0.103 | 746 | 746 | 1417 | 0.462 | 3 | 12 | 745 | 1.001 |
-
+<!-- RQ2 winner lgbm_te, data csv, run full, session 20261029-212412 -->
+| method             | source   | calibration                 | primary   |   calib_coverage |   coverage |   cp_low |   cp_high |   below |   above |   mean_width |   median_width |   interval_score |   min_cell_coverage |   cells_below_nominal |   n_cells |   const_width_same_cov |   width_ratio |
+|:-------------------|:---------|:----------------------------|:----------|-----------------:|-----------:|---------:|----------:|--------:|--------:|-------------:|---------------:|-----------------:|--------------------:|----------------------:|----------:|-----------------------:|--------------:|
+| raw_quantile       | quantile | raw q10-q90                 | False     |            0.804 |      0.801 |    0.781 |     0.820 |   0.093 |   0.106 |          840 |            711 |             1386 |               0.615 |                     1 |        12 |                    765 |         1.099 |
+| global_quantile    | quantile | CQR, global                 | False     |            0.801 |      0.796 |    0.775 |     0.815 |   0.099 |   0.105 |          833 |            703 |             1386 |               0.615 |                     2 |        12 |                    752 |         1.109 |
+| mondrian_quantile  | quantile | CQR, Mondrian               | True      |            0.807 |      0.801 |    0.781 |     0.820 |   0.096 |   0.102 |          854 |            679 |             1388 |               0.615 |                     1 |        12 |                    765 |         1.117 |
+| raw_gpboost        | gpboost  | raw Gaussian mu +/- z sigma | False     |            0.866 |      0.864 |    0.846 |     0.880 |   0.065 |   0.071 |          966 |            896 |             1357 |               0.625 |                     0 |        12 |                    940 |         1.028 |
+| global_gpboost     | gpboost  | sigma-normalised, global    | False     |            0.801 |      0.806 |    0.786 |     0.825 |   0.093 |   0.102 |          810 |            751 |             1338 |               0.571 |                     2 |        12 |                    772 |         1.050 |
+| mondrian_gpboost   | gpboost  | sigma-normalised, Mondrian  | False     |            0.814 |      0.803 |    0.782 |     0.822 |   0.093 |   0.104 |          849 |            708 |             1338 |               0.625 |                     2 |        12 |                    765 |         1.110 |
+| constant_conformal | lgbm_te  | constant +/- h (conformal)  | False     |            0.801 |      0.792 |    0.772 |     0.812 |   0.099 |   0.109 |          745 |            745 |             1474 |               0.496 |                     3 |        12 |                    744 |         1.001 |
