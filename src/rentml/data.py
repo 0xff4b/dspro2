@@ -1,75 +1,58 @@
-"""Loading and schema standardisation of the DSPRO1 rentumo.ch listings.
-
-:func:`load_from_db` (read-only :data:`LISTINGS_SQL`, URL passed in by the caller) and
-:func:`load_from_csv` (offline fallback, no descriptions) return the same canonical frame;
-:func:`load_listings` picks the source, :func:`fix_schema` coerces types and flags values.
-"""
+"""Listings: loading, schema, duplicate audit, cleaning, splits and engineered features."""
 
 import logging
-from pathlib import Path
+import os
+from typing import Literal
 
 import numpy as np
 import pandas as pd
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 from sqlalchemy import create_engine, text
-from sqlalchemy import exc as sa_exc
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.exc import OperationalError
 
-from rentml._anonymize import anonymize_descriptions
-from rentml.config import SNAPSHOT_DATE
+from rentml.config import (
+    AREA_RANGE,
+    INTERIM,
+    PRICE_RANGE,
+    RANDOM_STATE,
+    REFERENCE_YEAR,
+    ROOMS_RANGE,
+    SNAPSHOT_DATE,
+    SNAPSHOT_DIR,
+)
+from rentml.text import anonymize_series
 
 logger = logging.getLogger(__name__)
 
-COLUMN_MAP: dict[str, str] = {
-    "area_sqm": "area",
-    "price_cold": "price",
-    "oev_score": "oev",
-    "solar_class": "solar",
-    "elevation_m": "elevation",
-    "lv95_east": "east",
-    "lv95_north": "north",
-    "gbauj": "year_built",
-    "ganzwhg": "apartments",
-    "garea": "land_area",
-    "auxiliary_costs": "aux_costs",
+DB_EXPORT = INTERIM / "listings_db.parquet"  # frozen, anonymised database export
+
+COLUMN_MAP = {
+    "area_sqm": "area", "price_cold": "price", "oev_score": "oev", "solar_class": "solar",
+    "elevation_m": "elevation", "lv95_east": "east", "lv95_north": "north", "gbauj": "year_built",
+    "ganzwhg": "apartments", "garea": "land_area", "auxiliary_costs": "aux_costs",
     "kaution": "deposit",
-}
+}  # fmt: skip
+TEXT_COLUMNS = ["source", "slug", "address", "description"]
+NUMERIC_COLUMNS = [
+    "area", "rooms", "price", "aux_costs", "deposit", "population", "oev", "solar", "elevation",
+    "east", "north", "year_built", "apartments", "land_area",
+]  # fmt: skip
+CANONICAL_COLUMNS = ["listing_id", *TEXT_COLUMNS, *NUMERIC_COLUMNS, "egid", "available_from"]
+NON_MARKET_REGIMES = ("cooperative", "cost_based_or_subsidised", "shared_flat")
 
-CANONICAL_COLUMNS: tuple[str, ...] = (
-    ("listing_id", "source", "slug", "address", "area", "rooms", "price", "aux_costs", "deposit")
-    + ("available_from", "description", "population", "oev", "solar", "elevation", "east", "north")
-    + ("egid", "year_built", "apartments", "land_area", "observed_at")
-)
-TEXT_COLUMNS: tuple[str, ...] = ("source", "slug", "address", "description")
-DATE_COLUMNS: tuple[str, ...] = ("available_from", "observed_at")
-# Every other canonical column except the ids is numeric (egid is cast to Int64 separately).
-NUMERIC_COLUMNS: tuple[str, ...] = tuple(
-    c for c in CANONICAL_COLUMNS if c not in {"listing_id", "egid", *TEXT_COLUMNS, *DATE_COLUMNS}
-)
-ROOMS_MIN = 1.0
-ROOMS_MAX = 15.0
-DEFAULT_SOURCE = "rentumo"
-WIDE_CSV = "model_wide.csv"
-ENRICHED_CSV = "final_listings.csv"
-
-_WIDE_REQUIRED = ("listing_id", "area_sqm", "rooms", "price_cold", "lv95_east", "lv95_north")
-_SWISSTOPO_COLUMNS = ("oev_score", "solar_class", "elevation_m")
-_ENRICHMENT_COLUMNS = ("address", *_SWISSTOPO_COLUMNS, "egid", "gbauj", "ganzwhg", "garea")
-# DSPRO1 completeness rule (final_records.ipynb, FINAL_DATASET_QUERY -> final_listings.csv,
-# 4'536 rows): detail-page, swisstopo and GWR values all present, checked before gap filling.
-_DSPRO1_REQUIRED = ("address", "area_sqm", "rooms", "price_cold", "population", "egid")
-_DSPRO1_REQUIRED += ("gbauj", "ganzwhg", "garea", *_SWISSTOPO_COLUMNS)
-# Pairs (preferred detail-page column, fallback column) that are coalesced after the DB export.
-_DB_COALESCE = (("area_sqm", "area_listing"), ("rooms", "rooms_listing"))
-_DB_COALESCE += (("price_cold", "price_listing"),)
-# "Database not usable now" (outage, auth, timeout, no driver); query/schema errors such as
-# ProgrammingError are absent on purpose (SQLite would report them as OperationalError).
-_UNAVAILABLE_ERRORS = (sa_exc.OperationalError, sa_exc.InterfaceError, sa_exc.TimeoutError)
-_UNAVAILABLE_ERRORS += (sa_exc.ArgumentError, ImportError)
-_VALID_SOURCES = ("auto", "db", "csv")
-
-# Read-only, one row per listing (PostgreSQL). Only columns of the scraper migrations / DSPRO1
-# (no listing_details.year_built: GWR gbauj is the only year); search-page values fill gaps in
-# Python. With several buildings the most complete GWR row wins, then the smallest EGID.
+# Columns of final_listings.csv joined onto model_wide.csv.
+_ENRICHMENT = [
+    "address", "oev_score", "solar_class", "elevation_m", "egid", "gbauj", "ganzwhg", "garea",
+]  # fmt: skip
+# DSPRO1 completeness rule (final_listings.csv): detail page, swisstopo and GWR all present.
+_DSPRO1_REQUIRED = ["area_sqm", "rooms", "price_cold", "population", *_ENRICHMENT]
+# Detail-page columns of the database and their search-page fallbacks.
+_FALLBACKS = {"area_sqm": "area_listing", "rooms": "rooms_listing", "price_cold": "price_listing"}
+# Read-only, one row per listing; with several buildings the most complete GWR row wins.
 LISTINGS_SQL = """
 SELECT DISTINCT ON (l.id)
     l.id AS listing_id, l.slug, ld.address,
@@ -87,414 +70,426 @@ LEFT JOIN gwr_buildings     AS gb ON gb.egid = lb.egid
 ORDER BY l.id, num_nulls(gb.egid, gb.gbauj, gb.ganzwhg, gb.garea), lb.egid
 """
 
+DESC_MIN_CHARS = 30  # shorter descriptions are placeholders and never link listings
+DESC_MAX_GROUP = 10  # a text shared by more listings is property-manager boilerplate
+EXACT_COLUMNS = ["east", "north", "area", "rooms", "price"]
+PPSQM_LEVELS = ("municipality_id", "district_id", "canton")  # finest first, then CH
+PPSQM_MIN_GROUP = 10
+PPSQM_Z = 3.5  # Iglewicz & Hoaglin threshold for modified z-scores
+MAD_TO_SIGMA = 1 / 0.6745
 
-class DatabaseUnavailableError(RuntimeError):
-    """Raised when the database is not usable now (bad URL, no driver, connection error).
+BASE = ["area", "rooms", "area_per_room", "rooms_is_integer"]
+BUILDING = ["year_built", "building_age", "apartments", "land_area", "land_area_per_apartment"]
+LOCATION = ["population", "oev", "solar", "elevation", "muni_density", "muni_population"]
+COORDS = ["east", "north"]
+ROT_COORDS = ["rot45_x", "rot45_y"]
+_LV95_ORIGIN = (2_600_000.0, 1_200_000.0)
 
-    Only this subclass triggers the ``"auto"`` CSV fallback; a failing query is RuntimeError.
-    """
-
-
-def load_from_db(database_url: str, *, connect_timeout_s: int = 15) -> pd.DataFrame:
-    """Export all listings from the DSPRO1 database with :data:`LISTINGS_SQL`.
-
-    The connection is opened read-only (PostgreSQL) and disposed afterwards. The DSPRO1 schema
-    has no observation timestamps, so ``observed_at`` is set to the snapshot date.
-
-    Args:
-        database_url: SQLAlchemy URL, e.g. ``postgresql://user:pw@host/db?sslmode=require``
-            (``postgres://`` is rewritten to ``postgresql://``).
-        connect_timeout_s: Connection timeout in seconds (PostgreSQL only).
-
-    Returns:
-        Standardised listings indexed by ``listing_id`` (same columns as :func:`load_from_csv`).
-
-    Raises:
-        ValueError: If ``database_url`` is empty.
-        DatabaseUnavailableError: If the URL is unparsable, the driver is missing or the
-            connection fails (password redacted in the message).
-        RuntimeError: If the query fails, e.g. ``ProgrammingError`` for an unknown column.
-    """
-    if not database_url or not database_url.strip():
-        raise ValueError("database_url must not be empty")
-    url = database_url.strip()
-    url = "postgresql://" + url[len("postgres://") :] if url.startswith("postgres://") else url
-    try:
-        parsed = make_url(url)
-    except (sa_exc.ArgumentError, ValueError, TypeError):  # e.g. a non-numeric port
-        raise DatabaseUnavailableError("Could not load listings: unparsable database URL") from None
-    is_postgres = parsed.get_backend_name() == "postgresql"
-    engine = None
-    try:
-        connect_args = {"connect_timeout": connect_timeout_s} if is_postgres else {}
-        engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
-        with engine.connect() as conn:
-            if is_postgres:
-                conn = conn.execution_options(postgresql_readonly=True)
-            raw = pd.read_sql(text(LISTINGS_SQL), conn)
-    except (sa_exc.SQLAlchemyError, ImportError, pd.errors.DatabaseError) as exc:
-        raise _database_error(exc, url, parsed) from None
-    finally:
-        if engine is not None:
-            engine.dispose()
-    logger.info("Loaded %d listings from the database", len(raw))
-    return _prepare_db_frame(raw)
-
-
-def load_from_csv(csv_dir: Path) -> pd.DataFrame:
-    """Load the DSPRO1 CSV exports (offline fallback without descriptions).
-
-    Base ``model_wide.csv``; the address/swisstopo/GWR columns of ``final_listings.csv`` are
-    left-joined on ``listing_id`` (orphans dropped, logged). ``dspro1_enriched`` marks the
-    DSPRO1 modelling set (4'522 of the 4'536 final_listings rows have a base row; DB: same rule).
-
-    Args:
-        csv_dir: Directory with ``model_wide.csv`` and ``final_listings.csv``.
-
-    Returns:
-        Standardised listings indexed by ``listing_id``.
-
-    Raises:
-        FileNotFoundError: If ``model_wide.csv`` is missing.
-        KeyError: If ``model_wide.csv`` lacks a required column.
-        pandas.errors.MergeError: If ``listing_id`` is not unique in one of the files.
-    """
-    wide_path = Path(csv_dir) / WIDE_CSV
-    if not wide_path.is_file():
-        raise FileNotFoundError(f"DSPRO1 CSV export not found: {wide_path}")
-    base = pd.read_csv(wide_path)
-    missing = [col for col in _WIDE_REQUIRED if col not in base.columns]
-    if missing:
-        raise KeyError(f"{wide_path.name} lacks required columns {missing}")
-    merged = _join_enrichment(base, Path(csv_dir) / ENRICHED_CSV)
-    merged = merged.assign(description=None, source=DEFAULT_SOURCE, observed_at=SNAPSHOT_DATE)
-    n_enriched = int(merged["dspro1_enriched"].sum())
-    logger.info("Loaded %d listings from %s (%d enriched)", len(merged), csv_dir, n_enriched)
-    return _finalise(merged)
+Folds = list[tuple[np.ndarray, np.ndarray]]
 
 
 def load_listings(
-    source: str = "auto",
-    *,
-    csv_dir: Path,
-    database_url: str | None = None,
-    cache_path: Path | None = None,
+    source: Literal["auto", "db", "csv"] = "auto", database_url: str | None = None
 ) -> tuple[pd.DataFrame, str]:
-    """Load the listings from the database or the CSV exports.
+    """Load the listings from the database (frozen export) or the DSPRO1 CSV snapshot.
 
-    The DB returns every scraped listing (~10k, with texts), the CSV the 9'405 pre-filtered
-    DSPRO1 rows without texts: set ``source`` or ``cache_path`` so re-runs see the same data.
+    The first database query is anonymised and frozen at :data:`DB_EXPORT`; later runs read
+    that file. ``"auto"`` falls back to the CSV snapshot (no descriptions) when no URL is set
+    or the database is unreachable.
 
-    Args:
-        source: ``"db"``, ``"csv"`` or ``"auto"`` (database if a URL is given and reachable,
-            else CSV; only :class:`DatabaseUnavailableError` triggers the fallback).
-        csv_dir: Directory with the DSPRO1 CSV exports.
-        database_url: SQLAlchemy URL of the DSPRO1 database, e.g. from ``DATABASE_URL``.
-        cache_path: Optional parquet file freezing the database export: if it exists it is
-            returned for ``"db"``/``"auto"`` without querying, otherwise the first successful
-            export is written to it. Delete the file to re-query.
-
-    Returns:
-        ``(listings, used_source)`` with ``used_source`` in ``{"db", "csv"}``; standardised,
-        indexed by ``listing_id``, descriptions anonymised before they are returned or cached.
-
-    Raises:
-        ValueError: If ``source`` is unknown or ``"db"`` is requested without URL or cache.
-        DatabaseUnavailableError: If ``source="db"`` and the database cannot be reached.
-        RuntimeError: If the database query fails (also in ``"auto"``: no silent fallback).
+    ``database_url`` defaults to ``DATABASE_URL``. Returns the canonical listings indexed by
+    ``listing_id`` and the source actually used (``"db"`` or ``"csv"``).
     """
-    mode = source.strip().lower()
-    if mode not in _VALID_SOURCES:
-        raise ValueError(f"source must be one of {_VALID_SOURCES}, got {source!r}")
-    if mode == "csv":
-        return load_from_csv(csv_dir), "csv"
-    if cache_path is not None and Path(cache_path).is_file():
-        logger.info("Using the cached database export %s (delete it to re-query)", cache_path)
-        return anonymize_descriptions(pd.read_parquet(cache_path)), "db"  # also covers older caches
-    if not database_url:
-        if mode == "db":
-            raise ValueError("source='db' requires a database_url or an existing cache_path")
-        logger.info("No database URL given; loading the CSV exports from %s", csv_dir)
-        return load_from_csv(csv_dir), "csv"
+    if source not in ("auto", "db", "csv"):
+        raise ValueError(f"Unknown source {source!r}")
+    if source == "csv":
+        return _load_csv(), "csv"
+    if DB_EXPORT.is_file():
+        logger.info("Reading the frozen database export %s (delete it to re-query)", DB_EXPORT)
+        return pd.read_parquet(DB_EXPORT), "db"
+    url = database_url or os.environ.get("DATABASE_URL")
+    if not url:
+        if source == "db":
+            raise ValueError("source='db' needs DATABASE_URL or a frozen export")
+        return _load_csv(), "csv"
     try:
-        listings = anonymize_descriptions(load_from_db(database_url))  # no raw contact data on disk
-    except DatabaseUnavailableError as exc:
-        if mode == "db":
+        listings = _query_db(url)
+    except OperationalError as exc:
+        if source == "db":
             raise
-        logger.warning("%s -- falling back to the CSV exports in %s", exc, csv_dir)
-        return load_from_csv(csv_dir), "csv"
-    if cache_path is not None:
-        _write_cache(listings, Path(cache_path))
+        logger.warning("Database unreachable (%s); using the CSV snapshot", str(exc).split("\n")[0])
+        return _load_csv(), "csv"
+    listings["description"] = anonymize_series(listings["description"])
+    DB_EXPORT.parent.mkdir(parents=True, exist_ok=True)
+    listings.to_parquet(DB_EXPORT)
+    logger.info("Froze %d listings at %s", len(listings), DB_EXPORT)
     return listings, "db"
 
 
-def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename DSPRO1/DB columns to canonical names and add missing canonical columns.
-
-    Canonical columns come first (:data:`CANONICAL_COLUMNS` order), extras follow; missing
-    ones are added as ``None``/``NaT``/``NaN``. ``available_from`` (ISO or ``dd.mm.yyyy``,
-    other text -> ``NaT``) and ``observed_at`` become naive UTC datetimes in both loaders.
-    ``listing_id`` is not added if it is missing or already the index.
-
-    Args:
-        df: Raw listings.
-
-    Returns:
-        A new frame with canonical column names.
-
-    Raises:
-        ValueError: If renaming produces duplicate column names (e.g. ``area`` and ``area_sqm``).
-    """
-    out = df.rename(columns=COLUMN_MAP)
-    duplicated = sorted(set(out.columns[out.columns.duplicated()]))
-    if duplicated:
-        raise ValueError(f"Duplicate columns after renaming: {duplicated}")
-    absent = [c for c in CANONICAL_COLUMNS if c not in out.columns and c != "listing_id"]
-    out = out.assign(**{col: _empty_column(col, out.index) for col in absent})
-    for col in DATE_COLUMNS:
-        out[col] = _parse_dates(out[col])
-    ordered = [col for col in CANONICAL_COLUMNS if col in out.columns]
-    extras = [col for col in out.columns if col not in CANONICAL_COLUMNS]
-    return out[ordered + extras]
+def _query_db(url: str) -> pd.DataFrame:
+    engine = create_engine(url.replace("postgres://", "postgresql://", 1))
+    try:
+        with engine.connect() as conn:
+            raw = pd.read_sql(text(LISTINGS_SQL), conn.execution_options(postgresql_readonly=True))
+    finally:
+        engine.dispose()
+    raw["dspro1_enriched"] = raw.reindex(columns=_DSPRO1_REQUIRED).notna().all(axis=1)
+    for preferred, fallback in _FALLBACKS.items():
+        raw[preferred] = _to_float(raw[preferred]).fillna(_to_float(raw.pop(fallback)))
+    return _canonical(raw)
 
 
-def fix_schema(
-    df: pd.DataFrame, *, rooms_min: float = ROOMS_MIN, rooms_max: float = ROOMS_MAX
-) -> pd.DataFrame:
-    """Coerce types, flag implausible room counts and add the log target.
-
-    * numeric columns: ``pd.to_numeric`` after removing Swiss formatting (``1'850``,
-      ``3,5``, ``3½``, ``CHF``, ``.–``); unparsable values become ``NaN`` (count logged);
-    * ``egid`` as nullable ``Int64``; text columns stripped, blanks and NA as ``None``;
-    * ``available_from`` (ISO or ``dd.mm.yyyy``) and ``observed_at`` as datetimes;
-    * ``rooms`` as float; values outside ``[rooms_min, rooms_max]`` become ``NaN`` and are
-      flagged in ``rooms_invalid`` (kept if already set, so the function is idempotent);
-    * ``rooms_is_integer``: whole room count (``False`` if missing). DSPRO1 holds integers only
-      (scraper parses integers; migration 20260413141619 cast rooms to INTEGER, rounding 3.5 ->
-      4), so on DSPRO1 data it equals ``rooms.notna()``: no half-room signal;
-    * ``log_price = log(price)`` for positive prices, otherwise ``NaN``.
-
-    Args:
-        df: Standardised listings (see :func:`standardize_columns`).
-        rooms_min: Smallest plausible room count.
-        rooms_max: Largest plausible room count.
-
-    Returns:
-        A fixed copy of ``df``.
-
-    Raises:
-        KeyError: If ``rooms`` or ``price`` is missing.
-    """
-    missing = [col for col in ("rooms", "price") if col not in df.columns]
-    if missing:
-        raise KeyError(f"fix_schema requires the columns {missing}")
-    out = df.copy()
-    for col in NUMERIC_COLUMNS:
-        if col in out.columns:
-            out[col] = _coerce_numeric(out[col], name=col)
-    if "egid" in out.columns:
-        out["egid"] = _coerce_numeric(out["egid"], name="egid").round().astype("Int64")
-    for col in (*TEXT_COLUMNS, *DATE_COLUMNS):
-        if col in out.columns:
-            out[col] = _parse_dates(out[col]) if col in DATE_COLUMNS else _clean_text(out[col])
-    invalid = out["rooms"].notna() & ~out["rooms"].between(rooms_min, rooms_max)
-    previous = out["rooms_invalid"].eq(True) if "rooms_invalid" in out.columns else False
-    out["rooms_invalid"] = invalid | previous
-    out["rooms"] = out["rooms"].mask(invalid)
-    out["rooms_is_integer"] = out["rooms"].notna() & (out["rooms"] % 1 == 0)
-    price = out["price"]
-    out["log_price"] = np.log(price.where(price > 0))
-    n_no_price = int(out["log_price"].isna().sum())
-    logger.info(
-        "fix_schema: %d implausible rooms -> NaN, %d without price", invalid.sum(), n_no_price
+def _load_csv() -> pd.DataFrame:
+    base = pd.read_csv(SNAPSHOT_DIR / "model_wide.csv")
+    enrichment = pd.read_csv(
+        SNAPSHOT_DIR / "final_listings.csv", usecols=["listing_id", *_ENRICHMENT]
     )
+    merged = base.merge(enrichment, on="listing_id", how="left", validate="1:1", indicator=True)
+    merged["dspro1_enriched"] = merged.pop("_merge").eq("both")
+    logger.info("Loaded %d listings from the CSV snapshot %s", len(merged), SNAPSHOT_DIR)
+    return _canonical(merged)
+
+
+def _canonical(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.rename(columns=COLUMN_MAP)
+    out["source"] = out.get("source", "rentumo")
+    out["observed_at"] = pd.Timestamp(SNAPSHOT_DATE).as_unit("ns")  # DSPRO1 has no timestamps
+    extras = [c for c in out.columns if c not in CANONICAL_COLUMNS]
+    out = out.reindex(columns=CANONICAL_COLUMNS + extras)
+    return out.astype({"listing_id": "int64"}).set_index("listing_id", verify_integrity=True)
+
+
+def _to_float(values: pd.Series) -> pd.Series:
+    """Parse numbers, also with Swiss formatting (``1'850.–``, ``3½``, ``CHF``)."""
+    cleaned = values.astype("string").str.replace("½", ".5")
+    cleaned = cleaned.str.replace(r"CHF|Fr\.|\.[-–]+$|[\s'’]", "", regex=True).str.replace(",", ".")
+    return pd.to_numeric(cleaned, errors="coerce").astype(float)
+
+
+def fix_schema(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce types, set implausible room counts to NaN and add ``log_price``.
+
+    Adds ``rooms_invalid`` (outside :data:`ROOMS_RANGE`, set to NaN).
+    """
+    out = df.copy()
+    out[NUMERIC_COLUMNS] = out[NUMERIC_COLUMNS].apply(_to_float)
+    out["egid"] = pd.to_numeric(out["egid"], errors="coerce").round().astype("Int64")
+    for col in TEXT_COLUMNS:
+        out[col] = out[col].map(lambda v: (v.strip() or None) if isinstance(v, str) else None)
+    dates = out["available_from"].astype("string")  # ISO or Swiss dd.mm.yyyy
+    out["available_from"] = pd.to_datetime(dates, format="mixed", dayfirst=True, errors="coerce")
+    rooms = out["rooms"]
+    out["rooms_invalid"] = rooms.notna() & ~rooms.between(*ROOMS_RANGE)
+    out["rooms"] = rooms.mask(out["rooms_invalid"])
+    out["log_price"] = np.log(out["price"].where(out["price"] > 0))
+    logger.info("fix_schema: %d implausible room counts set to NaN", out["rooms_invalid"].sum())
     return out
 
 
-def audit_table(df: pd.DataFrame) -> pd.DataFrame:
-    """Summarise dtype, missingness and cardinality per column.
-
-    Args:
-        df: Any frame.
-
-    Returns:
-        One row per column (index ``column``) with ``dtype``, ``n_missing``, ``pct_missing``
-        (0-100, ``NaN`` for an empty frame) and ``n_unique`` (non-missing distinct values).
-    """
-    n_rows = len(df)
-    rows = []
-    for position, col in enumerate(df.columns):
-        series = df.iloc[:, position]
-        n_missing = int(series.isna().sum())
-        pct = 100.0 * n_missing / n_rows if n_rows else np.nan
-        rows.append((str(col), str(series.dtype), n_missing, pct, _n_unique(series)))
-    columns = ["column", "dtype", "n_missing", "pct_missing", "n_unique"]
-    return pd.DataFrame(rows, columns=columns).set_index("column")
-
-
-def text_coverage(
-    df: pd.DataFrame, *, col: str = "description", min_chars: int = 50
-) -> dict[str, float]:
-    """Measure how many listings have a usable description.
-
-    Args:
-        df: Listings.
-        col: Text column to audit.
-        min_chars: Length threshold for ``coverage_min_chars``.
-
-    Returns:
-        ``n_total``, ``n_with_text``, ``coverage`` (share with non-blank text),
-        ``coverage_min_chars`` (share with at least ``min_chars`` characters) and
-        ``median_chars`` (over non-blank texts). If a ``text_lang`` column exists, also
-        ``share_lang_<lang>`` among the non-blank texts. Shares are ``NaN`` for an empty frame.
-
-    Raises:
-        KeyError: If ``col`` is missing.
-    """
-    if col not in df.columns:
-        raise KeyError(f"Column {col!r} not found")
-    lengths = df[col].astype(object).where(df[col].notna(), "").astype(str).str.strip().str.len()
+def text_coverage(df: pd.DataFrame, min_chars: int = 50) -> dict[str, float]:
+    """Share of listings with a non-blank description and with at least ``min_chars``."""
+    lengths = df["description"].fillna("").astype(str).str.strip().str.len()
     has_text = lengths > 0
-    n_total = len(df)
-    result: dict[str, float] = {
-        "n_total": float(n_total),
+    return {
+        "n_total": float(len(df)),
         "n_with_text": float(has_text.sum()),
-        "coverage": float(has_text.mean()) if n_total else float("nan"),
-        "coverage_min_chars": float((lengths >= min_chars).mean()) if n_total else float("nan"),
-        "median_chars": float(lengths[has_text].median()) if has_text.any() else float("nan"),
+        "coverage": float(has_text.mean()),
+        "coverage_min_chars": float((lengths >= min_chars).mean()),
+        "median_chars": float(lengths[has_text].median()),
     }
-    if "text_lang" in df.columns and has_text.any():
-        shares = df.loc[has_text, "text_lang"].fillna("unknown").value_counts(normalize=True)
-        result.update({f"share_lang_{lang}": float(share) for lang, share in shares.items()})
-    return result
 
 
-def _join_enrichment(base: pd.DataFrame, enrich_path: Path) -> pd.DataFrame:
-    """Left-join the enrichment columns of ``final_listings.csv`` onto the base table."""
-    if not enrich_path.is_file():
-        logger.warning("%s not found; enrichment columns stay empty", enrich_path)
-        empty = dict.fromkeys(_ENRICHMENT_COLUMNS, np.nan)
-        return base.assign(**empty, dspro1_enriched=False)
-    wanted = {"listing_id", *_ENRICHMENT_COLUMNS}
-    enrich = pd.read_csv(enrich_path, usecols=lambda col: col in wanted)
-    absent = [col for col in _ENRICHMENT_COLUMNS if col not in enrich.columns]
-    if absent:
-        logger.warning("%s lacks enrichment columns %s", enrich_path.name, absent)
-    n_orphans = int((~enrich["listing_id"].isin(base["listing_id"])).sum())
-    if n_orphans:
-        logger.info("%d rows of %s have no base row and are dropped", n_orphans, enrich_path.name)
-    merged = base.merge(
-        enrich, on="listing_id", how="left", validate="one_to_one", indicator="_merge"
-    )
-    merged["dspro1_enriched"] = merged["_merge"].eq("both")
-    return merged.drop(columns="_merge")
+def _key_pairs(key: pd.Series) -> pd.DataFrame:
+    """Link every row with a non-missing key to the first row of its key group (positions)."""
+    codes = pd.factorize(key)[0]
+    pos = np.flatnonzero(codes >= 0)
+    first = pd.Series(pos).groupby(codes[pos]).transform("min").to_numpy()
+    keep = first != pos
+    return pd.DataFrame({"pos_a": first[keep], "pos_b": pos[keep]})
 
 
-def _prepare_db_frame(raw: pd.DataFrame) -> pd.DataFrame:
-    """Flag the DSPRO1 set, coalesce the fallback columns and standardise the DB export."""
-    out = raw.copy()
-    # Before gap filling: DSPRO1 required the detail-page values themselves.
-    out["dspro1_enriched"] = out.reindex(columns=list(_DSPRO1_REQUIRED)).notna().all(axis=1)
-    for preferred, fallback in _DB_COALESCE:
-        if fallback not in out.columns:
-            continue
-        backup = _coerce_numeric(out.pop(fallback), name=fallback)
-        current = out[preferred] if preferred in out.columns else pd.Series(np.nan, out.index)
-        out[preferred] = _coerce_numeric(current, name=preferred).fillna(backup)
-    if "source" not in out.columns:
-        out["source"] = DEFAULT_SOURCE
-    if "observed_at" not in out.columns:
-        out["observed_at"] = SNAPSHOT_DATE
-    return _finalise(out)
+def _building_pairs(
+    df: pd.DataFrame, block: pd.Series, area_tol: float, price_rel_tol: float
+) -> pd.DataFrame:
+    """Pairs in the same building block with equal rooms and close area and price."""
+    rows = df[["rooms", "area", "price"]].assign(block=block, pos=np.arange(len(df))).dropna()
+    pairs = rows.merge(rows, on=["block", "rooms"], suffixes=("_a", "_b"))
+    pairs = pairs[pairs["pos_a"] < pairs["pos_b"]]
+    close_area = (pairs["area_a"] - pairs["area_b"]).abs() <= area_tol
+    max_price = np.maximum(pairs["price_a"], pairs["price_b"])
+    close_price = (pairs["price_a"] - pairs["price_b"]).abs() <= price_rel_tol * max_price
+    return pairs.loc[close_area & close_price, ["pos_a", "pos_b"]]
 
 
-def _finalise(df: pd.DataFrame) -> pd.DataFrame:
-    """Standardise columns and index the frame by a unique integer ``listing_id``."""
-    out = standardize_columns(df)
-    if "listing_id" not in out.columns:
-        raise KeyError("Listings have no 'listing_id' column")
-    ids = pd.to_numeric(out["listing_id"], errors="coerce")
-    if ids.isna().any():
-        raise ValueError(f"{int(ids.isna().sum())} listings have a missing/non-numeric id")
-    out["listing_id"] = ids.astype("int64")
-    if out["listing_id"].duplicated().any():
-        raise ValueError("listing_id is not unique")
-    return out.set_index("listing_id")
+def link_duplicates(
+    df: pd.DataFrame, area_tol: float = 3.0, price_rel_tol: float = 0.10, coord_round_m: float = 5.0
+) -> pd.DataFrame:
+    """Find listing pairs that describe the same rental object.
+
+    Rules: same ``slug``; same anonymised description (case and punctuation ignored, see
+    :data:`DESC_MIN_CHARS` / :data:`DESC_MAX_GROUP`); exact duplicates on
+    :data:`EXACT_COLUMNS`; same building (``egid``, coordinates rounded to ``coord_round_m``,
+    or normalised address) with equal rooms, ``|Δarea| <= area_tol`` and
+    ``|Δprice| <= price_rel_tol * max(price)``. Returns one row per link: listing ids ``a``,
+    ``b`` and the ``rule``.
+    """
+    desc = df["description"].str.casefold().str.replace(r"\W+", " ", regex=True).str.strip()
+    desc = desc.where(desc.str.len() >= DESC_MIN_CHARS)
+    desc = desc.where(desc.map(desc.value_counts()) <= DESC_MAX_GROUP)
+    grid = (df[COORDS] / coord_round_m).round().astype("Int64").astype("string")
+    address = df["address"].str.casefold().str.replace(r"\W+", "", regex=True)
+    keys = {"slug": df["slug"], "description": desc}
+    keys["exact"] = df.groupby(EXACT_COLUMNS).ngroup().where(df[EXACT_COLUMNS].notna().all(axis=1))
+    blocks = {"egid": df["egid"], "coords": grid["east"] + "_" + grid["north"]}
+    blocks["address"] = address.where(address != "")
+    parts = {rule: _key_pairs(key) for rule, key in keys.items()}
+    parts |= {rule: _building_pairs(df, b, area_tol, price_rel_tol) for rule, b in blocks.items()}
+    links = pd.concat(parts, names=["rule"]).reset_index(level="rule", drop=False)
+    ids = df.index.to_numpy()
+    links = links.assign(a=ids[links["pos_a"].astype(int)], b=ids[links["pos_b"].astype(int)])
+    return links[["a", "b", "rule"]].reset_index(drop=True)
 
 
-def _empty_column(col: str, index: pd.Index) -> pd.Series:
-    """Create an all-missing column with the dtype that fits the canonical column."""
-    if col in TEXT_COLUMNS:
-        return pd.Series([None] * len(index), index=index, dtype=object)
-    if col in DATE_COLUMNS:
-        return pd.Series(pd.NaT, index=index, dtype="datetime64[ns]")
-    return pd.Series(np.nan, index=index, dtype=float)
+def assign_object_ids(df: pd.DataFrame, links: pd.DataFrame) -> pd.Series:
+    """Object id per listing: connected components of the duplicate links.
+
+    Links are transitive (A~B and B~C put A and C into one object). Ids ``obj_000001, ...``
+    are numbered by the smallest ``listing_id`` of each object, independent of row order.
+    """
+    n = len(df)
+    a, b = df.index.get_indexer(links["a"]), df.index.get_indexer(links["b"])
+    graph = coo_matrix((np.ones(len(a)), (a, b)), shape=(n, n))
+    _, labels = connected_components(graph, directed=False)
+    smallest = pd.Series(df.index, index=df.index).groupby(labels).transform("min")
+    rank = smallest.rank(method="dense").astype(int)
+    logger.info("%d listings -> %d objects", n, rank.max() if n else 0)
+    return ("obj_" + rank.astype(str).str.zfill(6)).rename("object_id")
 
 
-def _coerce_numeric(series: pd.Series, *, name: str) -> pd.Series:
-    """Convert a column to float, understanding Swiss number formatting."""
-    if pd.api.types.is_bool_dtype(series) or pd.api.types.is_numeric_dtype(series):
-        return series.astype(float)
-    cleaned = (
-        series.astype("string")
-        .str.strip()
-        .str.replace(r"(?<=\d)\s*½", ".5", regex=True)
-        .str.replace(r"^(?:CHF|Fr\.)\s*|\s*(?:CHF|Fr\.)$", "", regex=True)
-        .str.replace(r"\.[-–—]+$", "", regex=True)
-        .str.replace(r"[\s'’`]", "", regex=True)
-        .str.replace(r",(?=\d{3}(?:\D|$))", "", regex=True)
-        .str.replace(",", ".", regex=False)
-    )
-    result = pd.to_numeric(cleaned, errors="coerce").astype(float)
-    n_lost = int((series.notna() & result.isna()).sum())
-    if n_lost:
-        logger.info("Column %r: %d unparsable values set to NaN", name, n_lost)
-    return result
+def dedup_report(df: pd.DataFrame, object_ids: pd.Series, links: pd.DataFrame) -> pd.Series:
+    """Object counts, group sizes, price spread within objects and links per rule."""
+    sizes = object_ids.value_counts()
+    price = df["price"].groupby(object_ids)
+    spread = ((price.max() - price.min()) / price.max())[sizes.index[sizes > 1]]
+    n_rows, n_objects = len(df), len(sizes)
+    report = {"rows": n_rows, "unique_objects": n_objects, "duplicate_rows": n_rows - n_objects}
+    report["duplicate_share_pct"] = 100 * (n_rows - n_objects) / n_rows
+    report["objects_with_duplicates"] = (sizes > 1).sum()
+    by_size = sizes.clip(upper=4).value_counts().drop(1, errors="ignore")
+    report |= by_size.rename(lambda n: f"objects_size_{n}{'plus' if n == 4 else ''}").to_dict()
+    report["max_group_size"] = sizes.max()
+    report["median_rel_price_range_dup_objects"] = spread.median()
+    report |= links["rule"].value_counts().add_prefix("links_").to_dict()
+    return pd.Series(report, dtype=float, name="value")
 
 
-def _clean_text(series: pd.Series) -> pd.Series:
-    """Strip text values; represent blanks and NA as ``None`` in an object column."""
-    as_object = series.astype(object)
-    present = as_object.notna()
-    stripped = as_object.where(present, "").astype(str).str.strip()
-    return stripped.astype(object).where(present & stripped.ne(""), None)
+def collapse_objects(df: pd.DataFrame, object_ids: pd.Series) -> pd.DataFrame:
+    """One row per object: the listing with the smallest ``listing_id``, median price.
+
+    Adds ``object_id`` and ``n_listings``; ``log_price`` is recomputed from the median price.
+    """
+    out = df.assign(object_id=object_ids).sort_index()
+    median_price = out.groupby("object_id")["price"].median()
+    out = out.drop_duplicates("object_id").copy()
+    out["price"] = out["object_id"].map(median_price)
+    out["n_listings"] = out["object_id"].map(object_ids.value_counts())
+    if "log_price" in out:
+        out["log_price"] = np.log(out["price"].where(out["price"] > 0))
+    return out
 
 
-def _parse_dates(series: pd.Series) -> pd.Series:
-    """Parse ISO dates and Swiss ``dd.mm.yyyy`` dates; everything else becomes ``NaT``."""
-    if pd.api.types.is_datetime64_any_dtype(series):
-        return pd.to_datetime(series, errors="coerce", utc=True).dt.tz_localize(None)
-    as_text = series.astype("string").str.strip()
-    iso = pd.to_datetime(as_text, format="ISO8601", errors="coerce", utc=True)
-    swiss = pd.to_datetime(as_text, format="%d.%m.%Y", errors="coerce", utc=True)
-    return iso.fillna(swiss).dt.tz_localize(None)
+def domain_filter(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep plausible apartments (:data:`AREA_RANGE`, :data:`PRICE_RANGE`, :data:`ROOMS_RANGE`).
+
+    Bounds are inclusive; missing area or price is removed, missing rooms are kept. Returns
+    ``(kept, removed)``; ``removed`` has a ``reason`` column (first failing rule).
+    """
+    area, price, rooms = df["area"], df["price"], df["rooms"]
+    rules = {
+        "area_missing": area.isna(),
+        "area_below_min": area < AREA_RANGE[0],
+        "area_above_max": area > AREA_RANGE[1],
+        "price_missing": price.isna(),
+        "price_below_min": price < PRICE_RANGE[0],
+        "price_above_max": price > PRICE_RANGE[1],
+        "rooms_out_of_range": rooms.notna() & ~rooms.between(*ROOMS_RANGE),
+    }
+    reason = pd.Series(np.select(list(rules.values()), list(rules), default=""), index=df.index)
+    removed = reason != ""
+    logger.info("domain_filter: removed %s", reason[removed].value_counts().to_dict())
+    return df[~removed].copy(), df[removed].assign(reason=reason[removed])
 
 
-def _n_unique(series: pd.Series) -> int:
-    """Count distinct non-missing values, also for unhashable cell values."""
-    try:
-        return int(series.nunique(dropna=True))
-    except TypeError:
-        return int(series.dropna().astype(str).nunique())
+def price_per_sqm_outliers(df: pd.DataFrame) -> pd.Series:
+    """Flag ``|z| > PPSQM_Z`` for the robust z-score of log CHF/m² (one row per object).
+
+    ``z = (x - median) / (MAD / 0.6745)`` within the finest level of :data:`PPSQM_LEVELS` whose
+    group has at least :data:`PPSQM_MIN_GROUP` rows and a positive MAD; else the next coarser
+    level, finally all of Switzerland.
+    """
+    x = np.log(df["price"] / df["area"])
+    center = pd.Series(x.median(), index=df.index)
+    scale = pd.Series((x - x.median()).abs().median() * MAD_TO_SIGMA, index=df.index)
+    for col in reversed(PPSQM_LEVELS):  # coarse to fine: a usable finer group overrides its parent
+        grouped = x.groupby(df[col])
+        median = grouped.transform("median")
+        mad = (x - median).abs().groupby(df[col]).transform("median")
+        usable = (grouped.transform("count") >= PPSQM_MIN_GROUP) & (mad > 0)
+        center = center.mask(usable, median)
+        scale = scale.mask(usable, mad * MAD_TO_SIGMA)
+    flag = ((x - center) / scale).abs() > PPSQM_Z
+    logger.info("price_per_sqm_outliers: %d of %d flagged", flag.sum(), len(df))
+    return flag.rename("ppsqm_outlier")
 
 
-def _write_cache(df: pd.DataFrame, path: Path) -> None:
-    """Store the DB export as parquet; a failed write only costs the cache, not the data."""
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(path)
-        logger.info("Cached the database export (%d rows) at %s", len(df), path)
-    except (OSError, ValueError, TypeError) as exc:  # pyarrow errors subclass ValueError/TypeError
-        logger.warning("Could not cache the database export at %s: %s", path, exc)
+def regime_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split by ``rent_regime`` into ``(market, non_market)``; unknown labels count as market."""
+    non_market = df["rent_regime"].isin(NON_MARKET_REGIMES)
+    return df[~non_market].copy(), df[non_market].copy()
 
 
-def _database_error(exc: BaseException, url: str, parsed: URL) -> RuntimeError:
-    """Wrap a driver error (password redacted): outages as DatabaseUnavailableError."""
-    safe_url = parsed.render_as_string(hide_password=True)
-    message = f"{type(exc).__name__}: {exc}".splitlines()[0].replace(url, safe_url)
-    if parsed.password:
-        message = message.replace(str(parsed.password), "***")
-    dropped = isinstance(exc, sa_exc.DBAPIError) and bool(exc.connection_invalidated)
-    unavailable = dropped or isinstance(exc, _UNAVAILABLE_ERRORS)
-    error_type = DatabaseUnavailableError if unavailable else RuntimeError
-    return error_type(f"Could not load listings from database {safe_url}: {message}")
+def recover_rooms_from_text(
+    rooms: pd.Series, text_rooms: pd.Series, max_diff: float = 0.5
+) -> tuple[pd.Series, pd.Series]:
+    """Take half rooms (x.5 within ``max_diff``) and missing room counts from the text.
+
+    DSPRO1 stored whole rooms (3.5 became 4). Text values outside :data:`ROOMS_RANGE` or not a
+    multiple of 0.5 are ignored. Returns ``(rooms, source)`` with ``source`` one of ``table``,
+    ``text_half_room``, ``text_missing``, ``missing``.
+    """
+    text_rooms = text_rooms.reindex(rooms.index).astype(float)
+    valid = text_rooms.between(*ROOMS_RANGE) & (text_rooms * 2 % 1 == 0)
+    diff = (text_rooms - rooms).abs()
+    half = valid & (text_rooms % 1 == 0.5) & (diff > 0) & (diff <= max_diff)
+    fill = valid & rooms.isna()
+    recovered = rooms.mask(half | fill, text_rooms)
+    source = pd.Series("table", index=rooms.index)
+    source = source.mask(half, "text_half_room").mask(fill, "text_missing")
+    return recovered, source.mask(recovered.isna(), "missing")
+
+
+def make_strata(df: pd.DataFrame, min_stratum: int = 20) -> pd.Series:
+    """Canton x price quartile strata with at least ``min_stratum`` rows.
+
+    Rare strata merge into ``ALL|<quartile>``; if that is still rare, its rows join the largest
+    stratum of their quartile.
+    """
+    bins = pd.qcut(df["price"], 4, labels=False, duplicates="drop")
+    quartile = "P" + (bins + 1).astype("Int64").astype(str)
+    strata = df["canton"].astype(str) + "|" + quartile
+    strata = strata.mask(strata.map(strata.value_counts()) < min_stratum, "ALL|" + quartile)
+    rare = strata.map(strata.value_counts()) < min_stratum
+    largest = strata[~rare].groupby(quartile[~rare]).agg(lambda s: s.mode().iloc[0])
+    return strata.mask(rare, quartile.map(largest)).rename("stratum")
+
+
+def _stratified_group_folds(groups: pd.Series, strata: pd.Series, n_splits: int) -> Folds:
+    codes = pd.factorize(groups, sort=True)[0]
+    # sklearn 1.7's StratifiedGroupKFold(shuffle=True) shuffles the class counts but not the
+    # group ids they belong to, which breaks the stratification: permute the groups instead.
+    permuted = np.random.default_rng(RANDOM_STATE).permutation(codes.max() + 1)[codes]
+    splitter = StratifiedGroupKFold(n_splits=n_splits)
+    return list(splitter.split(np.zeros(len(codes)), strata.to_numpy(), permuted))
+
+
+def train_calib_test_split(df: pd.DataFrame, strata: pd.Series) -> pd.Series:
+    """60/20/20 train/calib/test labels, grouped by ``object_id`` and stratified.
+
+    Five stratified group folds: fold 0 is the test set, fold 1 the calibration set.
+    ``strata`` is aligned to ``df`` by index label.
+    """
+    folds = _stratified_group_folds(df["object_id"], strata.reindex(df.index), 5)
+    split = np.full(len(df), "train", dtype=object)
+    split[folds[0][1]] = "test"
+    split[folds[1][1]] = "calib"
+    return pd.Series(split, index=df.index, name="split")
+
+
+def grouped_cv_folds(df: pd.DataFrame, strata: pd.Series | None = None, n_splits: int = 5) -> Folds:
+    """CV folds grouped by ``object_id`` (stratified with ``strata``), positions into ``df``."""
+    if strata is None:
+        splitter = GroupKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
+        return list(splitter.split(df, groups=df["object_id"]))
+    return _stratified_group_folds(df["object_id"], strata.reindex(df.index), n_splits)
+
+
+def spatial_cv_folds(df: pd.DataFrame, n_splits: int = 5) -> Folds:
+    """CV folds that hold out whole municipalities (positions into ``df``)."""
+    splitter = GroupKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
+    return list(splitter.split(df, groups=df["municipality_id"]))
+
+
+def add_engineered_features(df: pd.DataFrame, reference_year: int = REFERENCE_YEAR) -> pd.DataFrame:
+    """Add area per room, building age, land area per apartment and 45° rotated LV95 coordinates.
+
+    Ratios with a non-positive denominator and features of missing input columns are NaN.
+    Works on one row, so training and the app derive the features the same way.
+    """
+    out = df.copy()
+    inputs = ["area", "rooms", "year_built", "land_area", "apartments", *COORDS]
+    num = df.reindex(columns=inputs).apply(pd.to_numeric, errors="coerce").astype(float)
+    rooms, apartments = num["rooms"], num["apartments"]
+    out["area_per_room"] = num["area"] / rooms.where(rooms > 0)
+    out["rooms_is_integer"] = (rooms % 1 == 0).astype(float).where(rooms.notna())
+    out["building_age"] = (reference_year - num["year_built"]).clip(lower=0)
+    out["land_area_per_apartment"] = num["land_area"] / apartments.where(apartments > 0)
+    east, north = num["east"] - _LV95_ORIGIN[0], num["north"] - _LV95_ORIGIN[1]
+    cos45 = np.cos(np.pi / 4)
+    out["rot45_x"] = (east - north) * cos45
+    out["rot45_y"] = (east + north) * cos45
+    return out
+
+
+def _neighbour_stats(
+    pool_xy: np.ndarray,
+    pool_y: np.ndarray,
+    query_xy: np.ndarray,
+    k: int,
+    self_pos: np.ndarray | None = None,
+) -> np.ndarray:
+    """Mean and median target of the k nearest pool rows, skipping ``self_pos`` (LOO)."""
+    out = np.full((len(query_xy), 2), np.nan)
+    ok = ~np.isnan(query_xy).any(axis=1)
+    if not ok.any():
+        return out
+    n_neighbours = min(k + (self_pos is not None), len(pool_xy))
+    nn = NearestNeighbors(n_neighbors=n_neighbours).fit(pool_xy)
+    idx = nn.kneighbors(query_xy[ok], return_distance=False)
+    keep = np.ones(idx.shape, dtype=bool) if self_pos is None else idx != self_pos[ok, None]
+    keep &= keep.cumsum(axis=1) <= k
+    values = np.where(keep, pool_y[idx], np.nan)
+    out[ok] = np.column_stack([np.nanmean(values, axis=1), np.nanmedian(values, axis=1)])
+    return out
+
+
+def knn_price_features(
+    train_df: pd.DataFrame,
+    apply_df: pd.DataFrame | None = None,
+    k: int = 10,
+    mode: Literal["loo", "oof"] = "loo",
+    folds: Folds | None = None,
+) -> pd.DataFrame:
+    """DSPRO1 location feature: mean and median rent of the k nearest training listings.
+
+    Coordinates are standardised on the training rows. With ``apply_df`` its rows use all
+    training rows. Otherwise ``mode="loo"`` (DSPRO1) uses the k nearest *other* training rows,
+    so relistings of the same object leak their rent; ``mode="oof"`` uses only the training
+    part of the fold in which a row is validated (``folds`` as positions into ``train_df``).
+    Returns ``knn_price_mean`` and ``knn_price_median``, indexed like the featurised rows.
+    """
+    scaler = StandardScaler().fit(train_df[COORDS])  # NaN rows are ignored in fit
+    xy, y = scaler.transform(train_df[COORDS]), train_df["price"].to_numpy(dtype=float)
+    pool = ~np.isnan(xy).any(axis=1) & ~np.isnan(y)
+    columns = ["knn_price_mean", "knn_price_median"]
+    if apply_df is not None:
+        stats = _neighbour_stats(xy[pool], y[pool], scaler.transform(apply_df[COORDS]), k)
+        return pd.DataFrame(stats, index=apply_df.index, columns=columns)
+    if mode == "loo":
+        self_pos = np.where(pool, pool.cumsum() - 1, -1)  # position of each row in the pool
+        stats = _neighbour_stats(xy[pool], y[pool], xy, k, self_pos)
+    else:
+        stats = np.full((len(xy), 2), np.nan)
+        for train_pos, val_pos in folds:
+            train_pos = train_pos[pool[train_pos]]
+            stats[val_pos] = _neighbour_stats(xy[train_pos], y[train_pos], xy[val_pos], k)
+    return pd.DataFrame(stats, index=train_df.index, columns=columns)
