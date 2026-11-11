@@ -9,7 +9,7 @@ import pytest
 from dash import no_update
 from shapely.geometry import box
 
-from rentml import app, geo
+from rentml import app, geo, maps
 from rentml.app_figures import map_figure
 from rentml.intervals import (
     CQR,
@@ -57,7 +57,7 @@ def layers() -> dict[str, gpd.GeoDataFrame]:
         geometry=[box(E0, N0, E0 + 1000, N0 + 1000), box(E0 + 4000, N0, E0 + 5000, N0 + 1000)],
         crs=geo.LV95,
     ).to_crs(geo.WGS84)
-    return dict.fromkeys(geo.MAP_LEVELS, units)
+    return dict.fromkeys(maps.MAP_LEVELS, units)
 
 
 @pytest.fixture(scope="module")
@@ -258,3 +258,29 @@ def test_map_figure_greys_out_small_units(layers: dict) -> None:
     grey, values = fig.data
     assert list(grey.locations) == [1, 6621] and list(values.locations) == [1]
     assert "weniger als 20 Inserate" in grey.text[1]
+
+
+def test_map_figure_draws_lakes_on_top(layers: dict) -> None:
+    lakes = gpd.GeoDataFrame(
+        {"unit_id": ["lake_0"], "name": ["Vierwaldstättersee"]},
+        geometry=[box(E0 + 100, N0 + 100, E0 + 400, N0 + 400)],
+        crs=geo.LV95,
+    ).to_crs(geo.WGS84)
+    fig = map_figure(layers["canton"], min_count=20, lakes=lakes)
+    assert len(fig.data) == 3 and list(fig.data[-1].text) == ["Vierwaldstättersee"]
+    assert not fig.data[-1].showscale
+
+
+def test_load_resources_reads_lake_layer(tmp_path, layers: dict, monkeypatch) -> None:
+    monkeypatch.delenv(app.MODEL_ENV, raising=False)
+    for level, layer in layers.items():
+        layer.to_parquet(tmp_path / f"map_{level}.parquet")
+    (tmp_path / "map_meta.json").write_text(json.dumps({"min_count": 20}))
+    lakes = gpd.GeoDataFrame(
+        {"name": ["See"], "area_km2": [1.0]},
+        geometry=[box(E0, N0, E0 + 100, N0 + 100)],
+        crs=geo.LV95,
+    )
+    maps.write_lakes_layer(lakes, tmp_path)
+    res = app.load_resources(tmp_path / "missing.joblib", tmp_path)
+    assert res.layers is not None and list(res.lakes["name"]) == ["See"]

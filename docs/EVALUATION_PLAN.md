@@ -126,3 +126,14 @@ Every stage is logged in MLflow (stage tag) and the ablation table is rendered a
   duplicate audit, so no cluster resampling is needed), Holm uses `statsmodels`, Moran's I uses
   `esda`/`libpysal`. The duplicate audit links building matches only with equal rooms (8'335 instead
   of 8'298 objects on the DSPRO1 snapshot). Numbers in `docs/results` were regenerated afterwards.
+- v1 (draft), before tagging: frozen data source switched to the Comparis scrape (26–29 Oct 2026,
+  `comparis_cleaning.ipynb` → `data/interim/comparis_cleaned.db`), run in
+  `dspro2_ml_pipeline_comparis.ipynb`. The DSPRO1 enrichment is repeated for every object with an
+  address or precise coordinate (`rentml.enrichment`: geo.admin search, BFS MADD, ARE, BFE,
+  STATPOP); a GWR year given only as a construction period becomes the period midpoint (the
+  dwellings' year is often the placeholder 1999). A missing living area is now filled from the GWR
+  when the dwelling type (whole GWR rooms = floor of the listed rooms, same floor if known) is unique
+  within 5 % (`area_source = gwr`, in `F_PORTAL` as `area_from_gwr`). Duplicates also link by the
+  enriched EGID. New exploratory stage **P** (`F_PORTAL`: floor, renovation year, balconies, house,
+  portal flags) after the text stages; it is not in the Holm family and not selectable for RQ3.
+  Purchase prices (CHF 50,000–30 M) are modelled outside this plan in `dspro2_buy_model.ipynb`.

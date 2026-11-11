@@ -1,4 +1,4 @@
-<!-- mondrian_quantile, cells with >= 20 test objects, RQ2 winner lgbm_te, data csv, run full, session 20261029-212412 -->
+<!-- mondrian_quantile, cells with >= 20 test objects, RQ2 winner lgbm_te, data csv, run full, session 20261108-203600 -->
 | level        | key   | unit              |   n |   coverage |   cp_low |   cp_high |
 |:-------------|:------|:------------------|----:|-----------:|---------:|----------:|
 | canton       | AG    | AG                | 109 |      0.826 |    0.741 |     0.892 |

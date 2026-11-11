@@ -298,8 +298,13 @@ def collapse_objects(df: pd.DataFrame, object_ids: pd.Series) -> pd.DataFrame:
     return out
 
 
-def domain_filter(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Keep plausible apartments (:data:`AREA_RANGE`, :data:`PRICE_RANGE`, :data:`ROOMS_RANGE`).
+def domain_filter(
+    df: pd.DataFrame,
+    area_range: tuple[float, float] = AREA_RANGE,
+    price_range: tuple[float, float] = PRICE_RANGE,
+    rooms_range: tuple[float, float] = ROOMS_RANGE,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Keep plausible objects; the defaults are the apartment rules of the evaluation plan.
 
     Bounds are inclusive; missing area or price is removed, missing rooms are kept. Returns
     ``(kept, removed)``; ``removed`` has a ``reason`` column (first failing rule).
@@ -307,12 +312,12 @@ def domain_filter(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     area, price, rooms = df["area"], df["price"], df["rooms"]
     rules = {
         "area_missing": area.isna(),
-        "area_below_min": area < AREA_RANGE[0],
-        "area_above_max": area > AREA_RANGE[1],
+        "area_below_min": area < area_range[0],
+        "area_above_max": area > area_range[1],
         "price_missing": price.isna(),
-        "price_below_min": price < PRICE_RANGE[0],
-        "price_above_max": price > PRICE_RANGE[1],
-        "rooms_out_of_range": rooms.notna() & ~rooms.between(*ROOMS_RANGE),
+        "price_below_min": price < price_range[0],
+        "price_above_max": price > price_range[1],
+        "rooms_out_of_range": rooms.notna() & ~rooms.between(*rooms_range),
     }
     reason = pd.Series(np.select(list(rules.values()), list(rules), default=""), index=df.index)
     removed = reason != ""

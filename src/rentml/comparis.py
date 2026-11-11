@@ -20,7 +20,7 @@ import pandas as pd
 from pyproj import Transformer
 
 from rentml.config import DATA, INTERIM, REFERENCE_YEAR, ROOMS_RANGE
-from rentml.data import DESC_MIN_CHARS
+from rentml.data import DESC_MIN_CHARS, domain_filter
 from rentml.geo import LV95
 from rentml.text import anonymize_series
 
@@ -55,6 +55,12 @@ PROPERTY_CATEGORY = {
     "Einzelzimmer": "room",
 }  # fmt: skip
 MONTHLY_RENT = "Mietpreis pro Monat"  # weekly, daily and yearly rents are holiday or commercial
+TOTAL_PRICE = "Kaufpreis"  # "Kaufpreis pro m²" is a rate, not a price
+# Purchase objects: below CHF 50k are placeholders, symbolic prices or parking spaces; the upper
+# bound removes "987654336"-style placeholders. Houses have larger areas than flats.
+BUY_PRICE_RANGE = (50_000.0, 30_000_000.0)
+BUY_AREA_RANGE = (15.0, 2_000.0)
+BUY_CATEGORIES = ("apartment", "house")
 CH_BBOX = (5.95, 45.81, 10.50, 47.81)  # lon/lat bounds of Switzerland (WGS84)
 YEAR_RANGE = (1000, REFERENCE_YEAR + 5)  # 0 and 9999 are placeholders
 MIN_MEASURE_M2 = 2.0  # "1 m²" is a placeholder for an unknown area
@@ -67,7 +73,8 @@ LINK_AREA_BUCKET_M2 = 5.0  # a shared text links listings only with equal rooms 
 FLOOR_LABELS = {"eg": 0.0, "erdgeschoss": 0.0, "untergeschoss": -1.0, "ug": -1.0}
 # Numeric features and attributes, in metres (Distance*), minutes (DistanceTime*) or m².
 NUMERIC_EXTRAS = {
-    "GardenMeters": "garden_area", "BalconyMeters": "balcony_area", "NumApartments": "apartments",
+    "GardenMeters": "garden_area", "BalconyMeters": "balcony_area",
+    "NumApartments": "apartments_listed",
     "DistanceBus": "dist_bus_m", "DistanceTrainStation": "dist_train_m",
     "DistanceShoppingFacilities": "dist_shopping_m", "DistanceKindergarden": "dist_kindergarten_m",
     "DistancePrimarySchool": "dist_primary_school_m",
@@ -295,8 +302,44 @@ def rent_scope(df: pd.DataFrame) -> pd.Series:
         "price_not_monthly": df["price_type"].ne(MONTHLY_RENT),
         "coordinates_missing": df[["east", "north"]].isna().any(axis=1),
     }
+    return _first_reason(rules, df.index)
+
+
+def buy_scope(df: pd.DataFrame) -> pd.Series:
+    """Find the listings outside the purchase analysis.
+
+    Args:
+        df: Listings from :func:`normalise`.
+
+    Returns:
+        The first failing rule (``deal_type_rent``, ``price_not_total``, ``category_not_buy``,
+        ``coordinates_missing``) per listing, ``<NA>`` for flats and houses for sale in scope.
+    """
+    rules = {
+        "deal_type_rent": df["deal_type"].ne("buy"),
+        "price_not_total": df["price_type"].ne(TOTAL_PRICE),
+        "category_not_buy": ~df["property_category"].isin(BUY_CATEGORIES),
+        "coordinates_missing": df[["east", "north"]].isna().any(axis=1),
+    }
+    return _first_reason(rules, df.index)
+
+
+def buy_domain_filter(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Domain rules for purchase objects (:data:`BUY_PRICE_RANGE`, :data:`BUY_AREA_RANGE`).
+
+    Args:
+        df: Purchase objects with ``area``, ``price`` and ``rooms``.
+
+    Returns:
+        ``(kept, removed)`` as in :func:`rentml.data.domain_filter`; prices below CHF 50'000
+        are removed as ``price_below_min``.
+    """
+    return domain_filter(df, area_range=BUY_AREA_RANGE, price_range=BUY_PRICE_RANGE)
+
+
+def _first_reason(rules: dict[str, pd.Series], index: pd.Index) -> pd.Series:
     reason = np.select(list(rules.values()), list(rules), default="")
-    return pd.Series(reason, index=df.index, dtype="string").replace("", pd.NA)
+    return pd.Series(reason, index=index, dtype="string").replace("", pd.NA)
 
 
 def linking_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -305,13 +348,13 @@ def linking_frame(df: pd.DataFrame) -> pd.DataFrame:
     Centroid coordinates and addresses without a house number describe many buildings, so they
     are blanked. Managers reuse one project text for every flat of a new building, so the text
     only links listings with equal rooms and area bucket (:data:`LINK_AREA_BUCKET_M2`).
-    Comparis has no slug and no EGID.
+    Comparis has no slug; the EGID exists only after :func:`rentml.enrichment.combine`.
 
     Args:
         df: Listings from :func:`normalise`.
 
     Returns:
-        A copy with the masked columns and empty ``slug`` and ``egid``.
+        A copy with the masked columns, an empty ``slug`` and ``egid`` as nullable integer.
     """
     out = df.copy()
     text = out["description"].where(out["description"].str.len() >= DESC_MIN_CHARS)
@@ -321,8 +364,47 @@ def linking_frame(df: pd.DataFrame) -> pd.DataFrame:
     out[["east", "north"]] = out[["east", "north"]].where(out["coord_precise"], axis=0)
     out["address"] = out["address"].where(out["street_number"].notna())
     out["slug"] = pd.Series(pd.NA, index=out.index, dtype="string")
-    out["egid"] = pd.Series(pd.NA, index=out.index, dtype="Int64")
+    egid = out["egid"] if "egid" in out else pd.Series(pd.NA, index=out.index)
+    out["egid"] = pd.to_numeric(egid, errors="coerce").astype("Int64")
     return out
+
+
+BOOL_COLUMNS = (
+    "aux_costs_known", "rooms_invalid", "coord_precise", "ppsqm_outlier", "year_built_period",
+)  # fmt: skip
+DATE_COLUMNS = ("available_from", "published_at", "observed_at", "first_seen_at", "last_seen_at")
+
+
+def load_cleaned(table: str, path: Path = CLEANED_DB) -> pd.DataFrame:
+    """Read a table of the cleaned database read-only, with the types SQLite cannot store.
+
+    Args:
+        table: ``listings``, ``rent``, ``buy`` or another table of :func:`write_db`.
+        path: The cleaned database.
+
+    Returns:
+        The table, indexed by ``listing_id`` if it has one; flags as booleans, timestamps as
+        datetimes.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not exist.
+    """
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    con = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        df = pd.read_sql(f'SELECT * FROM "{table}"', con)
+    finally:
+        con.close()
+    for col in BOOL_COLUMNS:
+        if col in df:
+            df[col] = df[col].astype("boolean").fillna(False).astype(bool)
+    for col in DATE_COLUMNS:
+        if col in df:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+    if "egid" in df:
+        df["egid"] = pd.to_numeric(df["egid"], errors="coerce").astype("Int64")
+    return df.set_index("listing_id") if "listing_id" in df else df
 
 
 def file_sha256(path: Path) -> str:

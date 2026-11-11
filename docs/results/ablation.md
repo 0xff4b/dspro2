@@ -1,4 +1,4 @@
-<!-- session 20261029-212412, data csv, run full; one run per stage chosen by cv_mae; CI: bootstrap (2000 draws); p_vs_prev unadjusted (Holm-adjusted RQ1 tests: section 17) -->
+<!-- session 20261108-203600, data csv, run full; one run per stage chosen by cv_mae; CI: bootstrap (2000 draws); p_vs_prev unadjusted (Holm-adjusted RQ1 tests: section 17) -->
 | stage       | run_name       |   cv_mae |   test_mae |   test_rmse |   test_mape |   test_r2 |   test_mae_lt5 |   runs_in_stage |   mae_ci_low |   mae_ci_high |   gain_vs_prev |   p_vs_prev |
 |:------------|:---------------|---------:|-----------:|------------:|------------:|----------:|---------------:|----------------:|-------------:|--------------:|---------------:|------------:|
 | baseline    | naive          |      346 |        377 |         589 |        21.5 |     0.558 |            389 |               1 |          356 |           401 |            –   |      –      |

@@ -11,7 +11,7 @@ import pytest
 import requests
 from shapely.geometry import box
 
-from rentml import geo
+from rentml import geo, maps
 
 E0, N0 = 2_600_000.0, 1_200_000.0
 
@@ -235,7 +235,11 @@ def test_lookup_location() -> None:
     assert len(loc.dwellings) == 3
     period_only = MADD_XML.replace("<dateOfConstruction>1974-01</dateOfConstruction>", "")
     session.routes[geo.MADD_URL] = period_only
-    assert geo.lookup_location(address, session=session).year_built == 1999.0
+    assert geo.lookup_location(address, session=session).year_built == 1976.0  # 8015 midpoint
+    session.routes[geo.MADD_URL] = period_only.replace(
+        "<periodOfConstruction>8015</periodOfConstruction>", ""
+    )
+    assert geo.lookup_location(address, session=session).year_built is None  # not 1999
 
 
 def test_lookup_location_without_egid_or_network() -> None:
@@ -256,8 +260,8 @@ def test_write_and_load_map_layers(gpkg: Path, tmp_path: Path) -> None:
             "area": [50.0, 100.0, 100.0, 90.0],
         }
     )
-    geo.write_map_layers(objects, units, out_dir=tmp_path / "app", min_count=3)
-    layers, meta = geo.load_map_layers(tmp_path / "app")
+    maps.write_map_layers(objects, units, out_dir=tmp_path / "app", min_count=3)
+    layers, meta = maps.load_map_layers(tmp_path / "app")
     assert meta["min_count"] == 3 and meta["n_objects"] == 4
     munis = layers["municipality"].set_index("unit_id")
     assert munis.crs.to_epsg() == geo.WGS84

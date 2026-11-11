@@ -11,6 +11,7 @@ from rentml import intervals
 from rentml.config import AREA_RANGE, MIN_MAP_CELL
 from rentml.evaluation import COLORS, chf
 from rentml.intervals import RentModelBundle
+from rentml.maps import LAKE_COLOR, LAKE_EDGE
 
 FIG_LAYOUT = {"margin": {"l": 8, "r": 8, "t": 8, "b": 8}, "paper_bgcolor": "rgba(0,0,0,0)",
               "plot_bgcolor": "rgba(0,0,0,0)", "separators": ".'"}  # fmt: skip
@@ -61,8 +62,14 @@ def what_if_figure(bundle: RentModelBundle, row: pd.DataFrame, area: float) -> g
     return fig.update_layout(FIG_LAYOUT, height=280, xaxis=xaxis, yaxis=CHF_AXIS, legend=legend)
 
 
-def map_figure(layer: gpd.GeoDataFrame, min_count: int = MIN_MAP_CELL) -> go.Figure:
-    """Choropleth of the median CHF/m²; units below ``min_count`` objects are grey."""
+def map_figure(
+    layer: gpd.GeoDataFrame, min_count: int = MIN_MAP_CELL, lakes: gpd.GeoDataFrame | None = None
+) -> go.Figure:
+    """Choropleth of the median CHF/m²; units below ``min_count`` objects are grey.
+
+    ``lakes`` (from :func:`rentml.maps.load_lakes_layer`) are drawn on top, because most lakes
+    belong to the area of the surrounding municipalities.
+    """
     has = layer["chf_per_m2"].notna().to_numpy()
     hover = [
         f"<b>{r.name}</b><br>{r.chf_per_m2:.1f} CHF/m² · Median {chf(r.rent)} · {r.n_objects} "
@@ -79,5 +86,13 @@ def map_figure(layer: gpd.GeoDataFrame, min_count: int = MIN_MAP_CELL) -> go.Fig
     fig.add_choroplethmap(locations=layer.loc[has, "unit_id"], z=layer.loc[has, "chf_per_m2"],
                           text=np.asarray(hover, dtype=object)[has], colorscale="Blues",
                           colorbar={"title": {"text": "CHF/m²"}}, **common)  # fmt: skip
+    if lakes is not None and len(lakes):
+        water = [[0, LAKE_COLOR], [1, LAKE_COLOR]]
+        fig.add_choroplethmap(
+            geojson=json.loads(lakes[["unit_id", "geometry"]].to_json()),
+            featureidkey="properties.unit_id", locations=lakes["unit_id"],
+            z=np.zeros(len(lakes)), text=lakes["name"], hoverinfo="text", colorscale=water,
+            showscale=False, marker={"line": {"width": 0.8, "color": LAKE_EDGE}},
+        )  # fmt: skip
     view = {"style": "carto-positron", "center": {"lat": 46.8, "lon": 8.23}, "zoom": 6.4}
     return fig.update_layout(map=view, margin={"l": 0, "r": 0, "t": 0, "b": 0}, height=620)

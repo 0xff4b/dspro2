@@ -1,11 +1,10 @@
-"""Swiss geography: admin units, live geo.admin and GWR lookups, and the app's map layers.
+"""Swiss geography: admin units and live geo.admin and GWR lookups.
 
 Admin units come from swissBOUNDARIES3D (swisstopo). Live lookups for a single address use
 api3.geo.admin.ch and the federal building and dwelling register (GWR) via the BFS MADD
-service (eCH-0206). The map layers are simplified WGS84 polygons with listing aggregates.
+service (eCH-0206). The app's map layers live in :mod:`rentml.maps`.
 """
 
-import json
 import logging
 import shutil
 import xml.etree.ElementTree as ET
@@ -18,7 +17,7 @@ import numpy as np
 import pandas as pd
 import requests
 
-from rentml.config import APP_DATA, CANTON_ABBR, EXTERNAL, MIN_MAP_CELL, SB3D_VERSION, download
+from rentml.config import CANTON_ABBR, EXTERNAL, SB3D_VERSION, download
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +71,12 @@ FLOOR_LABELS = {
     3601: (90, "1. DG"), 3602: (91, "2. DG"),
 }  # fmt: skip
 FLOOR_RANGES = ((3101, 3199, "Stock"), (3501, 3508, "OG"))
-
-MAP_LEVELS = {"canton": "canton_id", "district": "district_id", "municipality": "municipality_id"}
+FLOOR_ATTIC_ORDER = 90  # attic floors sort last but have no floor number
+# Midpoints of the GWR construction periods (GBAUP); "before 1919" is set to 1900.
+PERIOD_MIDPOINT = {
+    8011: 1900, 8012: 1932, 8013: 1953, 8014: 1966, 8015: 1976, 8016: 1983, 8017: 1988,
+    8018: 1993, 8019: 1998, 8020: 2003, 8021: 2008, 8022: 2013, 8023: 2019,
+}  # fmt: skip
 
 
 def download_swissboundaries(dest_dir: Path = EXTERNAL, version: str = SB3D_VERSION) -> Path:
@@ -238,6 +241,7 @@ class Dwelling:
     floor_label: str
     rooms: float | None
     area: float | None
+    floor: float | None = None  # 0 = ground floor, -1 = basement; None if unknown or attic
 
     @property
     def display(self) -> str:
@@ -354,6 +358,7 @@ def _parse_dwellings(building: ET.Element) -> list[Dwelling]:
             floor_label=floor_label,
             rooms=_number(values.get("noOfHabitableRooms")),
             area=_number(values.get("surfaceAreaOfDwelling")),
+            floor=float(order) if floor_label and order < FLOOR_ATTIC_ORDER else None,
         )
         rows.append((order, label, dwelling))
     return [row[2] for row in sorted(rows, key=lambda row: row[:2])]
@@ -371,12 +376,13 @@ def _building_attributes(
     if building is None:
         return {"year_built": None, "apartments": None, "land_area": None}
     date = building.findtext(".//m:dateOfConstruction/m:dateOfConstruction", namespaces=MADD_NS)
+    period = building.findtext(".//m:dateOfConstruction/m:periodOfConstruction", namespaces=MADD_NS)
     area = building.findtext(".//m:building/m:surfaceAreaOfBuilding", namespaces=MADD_NS)
-    # Many buildings only carry a construction period; DSPRO1 then used the dwellings' year.
-    years = [_number(e.text) for e in building.iterfind(".//m:yearOfConstruction", MADD_NS)]
-    fallback = min((y for y in years if y), default=None)
+    # Many buildings only carry a construction period: take its midpoint. The dwellings' year is
+    # no fallback, because the GWR often fills it with the placeholder 1999.
+    midpoint = PERIOD_MIDPOINT.get(int(period)) if period and period.isdigit() else None
     return {
-        "year_built": _number((date or "")[:4]) or fallback,
+        "year_built": _number((date or "")[:4]) or _number(midpoint),
         "apartments": float(len(dwellings)) if dwellings else None,  # GWR: no count when 0
         "land_area": _number(area),
     }
@@ -385,7 +391,22 @@ def _building_attributes(
 def _location_attributes(
     east: float, north: float, session: requests.Session | None
 ) -> dict[str, float | None]:
-    params = {
+    identify = _get_json(IDENTIFY_URL, location_params(east, north), session)
+    height = _get_json(HEIGHT_URL, {"easting": east, "northing": north}, session)
+    return parse_location(identify, height)
+
+
+def location_params(east: float, north: float) -> dict[str, str | int]:
+    """Query parameters of the geo.admin identify call for the location layers at a point.
+
+    Args:
+        east: LV95 east (m).
+        north: LV95 north (m).
+
+    Returns:
+        Parameters for :data:`IDENTIFY_URL` (ÖV, solar and population layers, 1 px tolerance).
+    """
+    return {
         "geometry": f"{east},{north}",
         "geometryType": "esriGeometryPoint",
         "layers": f"all:{OEV_LAYER},{SOLAR_LAYER},{POPULATION_LAYER}",
@@ -395,13 +416,24 @@ def _location_attributes(
         "imageDisplay": "100,100,96",
         "mapExtent": f"{east - 10},{north - 10},{east + 10},{north + 10}",
     }
+
+
+def parse_location(identify: dict, height: dict) -> dict[str, float | None]:
+    """Location inputs from the identify and height responses of geo.admin.
+
+    Args:
+        identify: JSON of the identify call with :func:`location_params`.
+        height: JSON of the height service.
+
+    Returns:
+        ``oev``, ``solar``, ``population`` (latest STATPOP year) and ``elevation``.
+    """
     by_layer: dict[str, list[dict]] = {}
-    for item in _get_json(IDENTIFY_URL, params, session).get("results", []):
+    for item in identify.get("results", []):
         by_layer.setdefault(item.get("layerBodId"), []).append(item.get("attributes", {}))
     oev = by_layer.get(OEV_LAYER, [{}])[0].get("oev_erreichb_ewap")
     solar = by_layer.get(SOLAR_LAYER, [{}])[0].get("klasse")
     census = max(by_layer.get(POPULATION_LAYER, [{}]), key=lambda a: a.get("i_year", 0))
-    height = _get_json(HEIGHT_URL, {"easting": east, "northing": north}, session)
     return {
         "oev": _number(oev),
         "solar": _number(solar),
@@ -418,71 +450,3 @@ def lookup_location(address: Address, session: requests.Session | None = None) -
     values |= _location_attributes(address.east, address.north, session)
     missing = [name for name, value in values.items() if value is None]
     return LocationData(**values, missing=missing, dwellings=dwellings)
-
-
-def write_map_layers(
-    objects: pd.DataFrame,
-    units: gpd.GeoDataFrame,
-    out_dir: Path = APP_DATA,
-    tolerance_m: float = 50.0,
-    min_count: int = MIN_MAP_CELL,
-) -> list[Path]:
-    """Write ``map_<level>.parquet`` (WGS84 GeoParquet) and ``map_meta.json`` for the map page.
-
-    Each layer has ``unit_id``, ``name``, ``canton``, ``lang_region``, ``population``,
-    ``area_km2``, ``density``, ``n_objects``, ``chf_per_m2`` and ``rent``; medians only for
-    units with at least ``min_count`` objects. The municipality layer keeps the
-    ``UNIT_COLUMNS``, so :func:`assign_admin_units` also works on it.
-
-    Args:
-        objects: One row per object with ``price``, ``area`` and the admin id columns.
-        units: Output of :func:`load_admin_units`.
-        tolerance_m: Coverage simplification in metres (neighbours keep shared borders).
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    munis = units.set_geometry(units.geometry.simplify_coverage(tolerance_m))
-    munis = munis.assign(population=munis["muni_population"], area_km2=munis["muni_area_km2"])
-    objects = objects.assign(chf_per_m2=objects["price"] / objects["area"])
-    paths = []
-    for level, key in MAP_LEVELS.items():
-        layer = munis if level == "municipality" else _dissolve(munis, key, f"{level}_name")
-        stats = objects.groupby(key).agg(
-            n_objects=("price", "size"),
-            chf_per_m2=("chf_per_m2", "median"),
-            rent=("price", "median"),
-        )
-        stats.loc[stats["n_objects"] < min_count, ["chf_per_m2", "rent"]] = np.nan
-        layer = layer.assign(unit_id=layer[key], name=layer[f"{level}_name"])
-        layer = layer.join(stats, on="unit_id")
-        layer["n_objects"] = layer["n_objects"].fillna(0).astype(int)
-        layer["density"] = layer["population"] / layer["area_km2"]
-        layer = layer.to_crs(WGS84)
-        layer = layer.set_geometry(layer.geometry.set_precision(1e-5))  # ~1 m, smaller JSON
-        paths.append(out_dir / f"map_{level}.parquet")
-        layer.to_parquet(paths[-1])
-    meta = {
-        "boundaries": f"swissBOUNDARIES3D {SB3D_VERSION}",
-        "min_count": min_count,
-        "n_objects": len(objects),
-        "chf_per_m2": float(objects["chf_per_m2"].median()),
-        "rent": float(objects["price"].median()),
-    }
-    paths.append(out_dir / "map_meta.json")
-    paths[-1].write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    return paths
-
-
-def _dissolve(munis: gpd.GeoDataFrame, key: str, name_col: str) -> gpd.GeoDataFrame:
-    first = [c for c in ("canton_id", "canton", "canton_name", name_col) if c != key]
-    aggfunc = dict.fromkeys(first, "first") | {"population": "sum", "area_km2": "sum"}
-    out = munis.dissolve(key, aggfunc=aggfunc, method="coverage").reset_index()
-    weights = munis.groupby([key, "lang_region"])["population"].sum()
-    out["lang_region"] = out[key].map(weights.groupby(level=0).idxmax().str[1])
-    return out
-
-
-def load_map_layers(map_dir: Path = APP_DATA) -> tuple[dict[str, gpd.GeoDataFrame], dict]:
-    """Read the layers (keyed by level) and the metadata written by :func:`write_map_layers`."""
-    layers = {level: gpd.read_parquet(map_dir / f"map_{level}.parquet") for level in MAP_LEVELS}
-    meta = json.loads((map_dir / "map_meta.json").read_text(encoding="utf-8"))
-    return layers, meta

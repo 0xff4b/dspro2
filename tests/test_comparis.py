@@ -173,3 +173,54 @@ def test_write_db_refuses_raw_path(monkeypatch: pytest.MonkeyPatch, raw_db: Path
     monkeypatch.setattr(comparis, "RAW_DB", raw_db)
     with pytest.raises(ValueError, match="raw"):
         comparis.write_db({"t": pd.DataFrame({"a": [1]})}, raw_db)
+
+
+def test_buy_scope_reasons(listings: pd.DataFrame) -> None:
+    reason = comparis.buy_scope(listings)
+    assert pd.isna(reason[3])
+    assert reason[[1, 2]].tolist() == ["deal_type_rent", "deal_type_rent"]
+    flat = listings.loc[[3]].assign(price_type="Kaufpreis pro m²")
+    room = listings.loc[[3]].assign(property_category="room")
+    assert comparis.buy_scope(flat).iloc[0] == "price_not_total"
+    assert comparis.buy_scope(room).iloc[0] == "category_not_buy"
+
+
+def test_buy_domain_filter_drops_symbolic_prices() -> None:
+    frame = pd.DataFrame({
+        "area": [120.0, 120.0, 120.0, 3000.0],
+        "price": [49_999.0, 50_000.0, 987_654_336.0, 900_000.0],
+        "rooms": [4.5, 4.5, 4.5, 4.5],
+    })  # fmt: skip
+    kept, removed = comparis.buy_domain_filter(frame)
+    assert kept.index.tolist() == [1]
+    assert removed["reason"].tolist() == ["price_below_min", "price_above_max", "area_above_max"]
+
+
+def test_linking_frame_keeps_enriched_egid() -> None:
+    df = pd.DataFrame(
+        {
+            "description": [None, None], "rooms": [3.5, 3.5], "area": [80.0, 81.0],
+            "price": [1900.0, 1950.0], "east": [1.0, 500.0], "north": [1.0, 500.0],
+            "address": [None, None], "street_number": [pd.NA, pd.NA],
+            "coord_precise": [False, False], "egid": [11, 11],
+        },
+        index=pd.Index([20, 21], name="listing_id"),
+    )  # fmt: skip
+    links = data.link_duplicates(comparis.linking_frame(df))
+    assert links[["a", "b", "rule"]].values.tolist() == [[20, 21, "egid"]]
+
+
+def test_load_cleaned_restores_types(tmp_path: Path, listings: pd.DataFrame) -> None:
+    path = tmp_path / "cleaned.db"
+    rent = listings.assign(ppsqm_outlier=[True, False, False, False], egid=[11, None, None, None])
+    comparis.write_db({"rent": rent}, path)
+    loaded = comparis.load_cleaned("rent", path)
+    assert loaded.index.name == "listing_id" and len(loaded) == len(rent)
+    assert loaded["coord_precise"].dtype == bool and loaded["ppsqm_outlier"].tolist()[0]
+    assert pd.api.types.is_datetime64_any_dtype(loaded["observed_at"])
+    assert loaded["egid"].dtype == "Int64" and loaded.loc[1, "egid"] == 11
+
+
+def test_load_cleaned_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        comparis.load_cleaned("rent", tmp_path / "missing.db")

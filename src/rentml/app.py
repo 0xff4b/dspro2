@@ -1,8 +1,8 @@
 """RentLens: Dash app with the Fair-Rent Check, the landlord price band and the rent map.
 
 Start with ``uv run --extra app python -m rentml.app`` (``--help`` for options). The model bundle
-is read from ``$RENTML_MODEL_BUNDLE`` or ``config.BUNDLE_PATH``, the map layers
-(:func:`rentml.geo.write_map_layers`) and the QoLI table from ``config.APP_DATA``. Without a
+is read from ``$RENTML_MODEL_BUNDLE`` or ``config.BUNDLE_PATH``, the map layers and lakes
+(:func:`rentml.maps.write_map_layers`) and the QoLI table from ``config.APP_DATA``. Without a
 bundle the map still works and the two tools show a notice. Inputs of the tools are only used to
 answer the request and are never stored or logged.
 """
@@ -21,7 +21,7 @@ import pandas as pd
 import requests
 from dash import Dash, Input, Output, State, dcc, html, no_update
 
-from rentml import data, geo, intervals, models
+from rentml import data, geo, intervals, maps, models
 from rentml.app_figures import interval_figure, map_figure, what_if_figure
 from rentml.config import APP_DATA, AREA_RANGE, BUNDLE_PATH, MIN_MAP_CELL, ROOMS_RANGE
 from rentml.evaluation import chf
@@ -91,7 +91,7 @@ NOTES = {
     "no_model": "Für Schätzungen braucht RentLens das Modell-Bundle (models/rent_bundle_v1.joblib "
     "oder $RENTML_MODEL_BUNDLE).",
     "no_layers": "Es fehlen die Kartenebenen data/app/map_*.parquet und map_meta.json "
-    "(geo.write_map_layers); sie werden für Karte und Schätzung gebraucht.",
+    "(maps.write_map_layers); sie werden für Karte und Schätzung gebraucht.",
 }
 
 
@@ -108,6 +108,7 @@ class Resources:
     meta: dict = field(default_factory=dict)
     qoli: pd.DataFrame | None = None
     session: requests.Session | None = None
+    lakes: gpd.GeoDataFrame | None = None
     units: gpd.GeoDataFrame | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -133,11 +134,12 @@ def load_resources(bundle_path: Path | None = None, app_data: Path = APP_DATA) -
     bundle = _load_bundle(Path(bundle_path or os.environ.get(MODEL_ENV) or BUNDLE_PATH))
     layers, meta = None, {}
     try:
-        layers, meta = geo.load_map_layers(app_data)
+        layers, meta = maps.load_map_layers(app_data)
     except FileNotFoundError as exc:
         logger.warning("No map layers in %s (%s)", app_data, exc)
     qoli = pd.read_parquet(app_data / QOLI_FILE) if (app_data / QOLI_FILE).is_file() else None
-    return Resources(bundle, layers, meta, qoli, requests.Session())
+    lakes = maps.load_lakes_layer(app_data)
+    return Resources(bundle, layers, meta, qoli, requests.Session(), lakes)
 
 
 def encode_address(address: geo.Address) -> str:
@@ -475,7 +477,7 @@ def create_app(res: Resources | None = None) -> Dash:
     if res.layers is not None:
         min_count = int(res.meta.get("min_count", MIN_MAP_CELL))
         cb(Output("map", "figure"), Input("map-level", "value"))(
-            lambda level: map_figure(res.layers[level], min_count))
+            lambda level: map_figure(res.layers[level], min_count, res.lakes))
     # fmt: on
     return app
 

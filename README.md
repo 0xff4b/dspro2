@@ -12,7 +12,11 @@ gewählte Modell als Vergleichs-Baseline in `models/baseline/`.
 ```bash
 uv sync --all-extras
 uv run python -m ipykernel install --sys-prefix --name dspro2 --display-name "DSPRO2 (uv, Python 3.12)"
-uv run jupyter lab notebooks/dspro2_ml_pipeline.ipynb   # Mietmodell (RQ1–RQ3), schreibt Modell und Karte für die App
+uv run python -m rentml.enrichment                      # GWR-/swisstopo-Anreicherung der Comparis-Inserate (Cache, ca. 15 min)
+uv run jupyter lab notebooks/comparis_cleaning.ipynb     # Comparis bereinigen + anreichern -> data/interim/comparis_cleaned.db
+uv run jupyter lab notebooks/dspro2_ml_pipeline_comparis.ipynb  # Mietmodell auf Comparis (RQ1–RQ3), rent_bundle_v2
+uv run jupyter lab notebooks/dspro2_buy_model.ipynb      # Kaufpreismodell (Erweiterung), buy_bundle_v1
+uv run jupyter lab notebooks/dspro2_ml_pipeline.ipynb   # Mietmodell auf dem DSPRO1-Snapshot (Vergleich), rent_bundle_v1
 uv run jupyter lab notebooks/dspro2_qoli.ipynb          # Quality-of-Life-Index (RQ4)
 uv run --extra app python -m rentml.app                 # App auf http://127.0.0.1:8050
 ```
@@ -37,8 +41,14 @@ DSPRO2_RUN_MODE=fast DSPRO2_DATA_SOURCE=csv uv run jupyter nbconvert --to notebo
 
 ## Daten
 
-- **Inserate:** DSPRO1-Datenbank (Neon) mit Beschreibungstexten; ohne `DATABASE_URL` der versionierte
-  Snapshot in `data/dspro1_snapshot/` (9'405 Inserate ohne Text, Stand 13.04.2026, kein RQ1).
+- **Inserate (Hauptdaten):** Comparis-Scrape (Apify, 26.–29.10.2026) in `data/raw/comparis.db`,
+  bereinigt und angereichert in `data/interim/comparis_cleaned.db` (Tabellen `rent`, `buy`,
+  `listings`, …; lokal, nicht versioniert, Nutzungsbedingungen siehe `docs/DATENBESCHAFFUNG.md`).
+- **Anreicherung:** `rentml.enrichment` wiederholt die DSPRO1-Anreicherung (EGID über geo.admin,
+  GWR über BFS MADD, ÖV-Güteklasse, Solarkataster, STATPOP, Höhe); Antworten im Cache
+  `data/cache/geo_enrichment.jsonl`, abgebrochene Läufe setzen dort fort.
+- **Vergleichsdaten:** DSPRO1-Datenbank (Neon) bzw. der versionierte Snapshot in
+  `data/dspro1_snapshot/` (9'405 Inserate ohne Text, Stand 13.04.2026, kein RQ1).
 - **Geografie:** swissBOUNDARIES3D 2026-01 (swisstopo, OGD), beim ersten Lauf nach `data/external/`.
 - **QoLI-Geodaten (~1.8 GB nach `data/external/qoli/`):** ARE ÖV-Güteklassen, BAFU sonBASE Lärm,
   BAFU PolluMap, MeteoSchweiz Sonnenschein, BFS Arealstatistik und STATPOP, ESTV Steuerbelastung,
@@ -63,7 +73,10 @@ data/, models/   Snapshot und Baseline versioniert, sonst lokal
 |---|---|
 | `config` | Pfade und Konstanten des Evaluationsplans |
 | `data` | Laden (DB/CSV), Schema, Dublettenprüfung, Cleaning, Splits, Feature-Engineering |
-| `geo` | Gemeinde/Bezirk/Kanton, geo.admin-Adresssuche, GWR-Wohnungen (MADD), Kartenebenen |
+| `comparis` | Comparis-Rohdaten normalisieren, Miet-/Kauf-Scope, Kauf-Domainregeln, bereinigte DB lesen/schreiben |
+| `enrichment`, `geo_batch` | Batch-Anreicherung (EGID, GWR, Standort-Layer, GWR-Fläche); HTTP-Cache und parallele Abfragen |
+| `geo` | Gemeinde/Bezirk/Kanton, geo.admin-Adresssuche, GWR-Wohnungen (MADD) |
+| `maps` | Kartenebenen der App (Median CHF/m² je Einheit) und Seen-Ebene (BFS, generalisierte Grenzen) |
 | `text`, `llm` | Anonymisierung, Sprache, Keywords, Attributregeln, TF-IDF, Embeddings; Claude-Extraktion |
 | `models`, `nn` | Naive Baseline, LightGBM mit Target-Encoding, Optuna, GPBoost, SHAP; PyTorch-Netz |
 | `intervals` | Monotone Quantil-LightGBM, (Mondrian-)CQR, Coverage, Modell-Bundle, Fair-Rent-Check |
@@ -82,6 +95,8 @@ Evaluationsplan steht in `docs/EVALUATION_PLAN.md`.
 | `/vermieter` | Angebotsband (25.–75. Perzentil), kalibriertes Intervall, What-if über die Fläche |
 | `/karte` | Median CHF/m² pro Kanton, Bezirk oder Gemeinde (ab 20 Objekten) |
 
+- Die Karte legt die Seen (BFS, ab ca. 5 km²) als eigene Ebene über die Gemeinden, weil
+  swissBOUNDARIES3D die meisten Seen den Anstössergemeinden zuschlägt.
 - Das ML-Notebook schreibt das Modell nach `models/rent_bundle_v1.joblib` (oder
   `$RENTML_MODEL_BUNDLE`) und die Kartenebenen nach `data/app/`; das QoLI-Notebook schreibt
   `data/app/qoli_municipalities.parquet`. Fehlt das Modell, zeigen die Werkzeuge einen Hinweis.

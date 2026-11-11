@@ -1,4 +1,4 @@
-% RQ2 winner lgbm_te, data csv, run full, session 20261029-212412
+% RQ2 winner lgbm_te, data csv, run full, session 20261108-203600
 \begin{table}
 \caption{RQ3: 80 % intervals on the test set (CHF); primary method mondrian quantile}
 \label{tab:rq3_intervals}
@@ -9,9 +9,9 @@ method & source & calibration & primary & calib_coverage & coverage & cp_low & c
 raw_quantile & quantile & raw q10-q90 & False & 0.804 & 0.801 & 0.781 & 0.820 & 0.093 & 0.106 & 840 & 711 & 1386 & 0.615 & 1 & 12 & 765 & 1.099 \\
 global_quantile & quantile & CQR, global & False & 0.801 & 0.796 & 0.775 & 0.815 & 0.099 & 0.105 & 833 & 703 & 1386 & 0.615 & 2 & 12 & 752 & 1.109 \\
 mondrian_quantile & quantile & CQR, Mondrian & True & 0.807 & 0.801 & 0.781 & 0.820 & 0.096 & 0.102 & 854 & 679 & 1388 & 0.615 & 1 & 12 & 765 & 1.117 \\
-raw_gpboost & gpboost & raw Gaussian mu +/- z sigma & False & 0.866 & 0.864 & 0.846 & 0.880 & 0.065 & 0.071 & 966 & 896 & 1357 & 0.625 & 0 & 12 & 940 & 1.028 \\
-global_gpboost & gpboost & sigma-normalised, global & False & 0.801 & 0.806 & 0.786 & 0.825 & 0.093 & 0.102 & 810 & 751 & 1338 & 0.571 & 2 & 12 & 772 & 1.050 \\
-mondrian_gpboost & gpboost & sigma-normalised, Mondrian & False & 0.814 & 0.803 & 0.782 & 0.822 & 0.093 & 0.104 & 849 & 708 & 1338 & 0.625 & 2 & 12 & 765 & 1.110 \\
+raw_gpboost & gpboost & raw Gaussian mu +/- z sigma & False & 0.855 & 0.866 & 0.849 & 0.882 & 0.066 & 0.067 & 965 & 894 & 1369 & 0.560 & 1 & 12 & 950 & 1.016 \\
+global_gpboost & gpboost & sigma-normalised, global & False & 0.801 & 0.811 & 0.791 & 0.829 & 0.089 & 0.101 & 826 & 765 & 1352 & 0.538 & 1 & 12 & 781 & 1.057 \\
+mondrian_gpboost & gpboost & sigma-normalised, Mondrian & False & 0.807 & 0.808 & 0.788 & 0.827 & 0.096 & 0.096 & 845 & 705 & 1352 & 0.560 & 2 & 12 & 779 & 1.085 \\
 constant_conformal & lgbm_te & constant +/- h (conformal) & False & 0.801 & 0.792 & 0.772 & 0.812 & 0.099 & 0.109 & 745 & 745 & 1474 & 0.496 & 3 & 12 & 744 & 1.001 \\
 \bottomrule
 \end{tabular}

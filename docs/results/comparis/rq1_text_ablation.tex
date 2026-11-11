@@ -1,0 +1,18 @@
+% base model lgbm_te, data comparis, run full
+\begin{table}
+\caption{RQ1 text ablation on lgbm_te: CV and test MAE (CHF), paired bootstrap against the previous stage, Holm across S1--S3}
+\label{tab:rq1_text_ablation}
+\begin{tabular}{llllllllllllllrr}
+\toprule
+stage & label & n_added & cv_mae & calib_mae & test_mae & vs & diff & ci_low & ci_high & p_bootstrap & p_wilcoxon & p_holm & reject & supported & selected_by_cv \\
+\midrule
+S0 & tabular + geo (RQ2 winner) & 0 & 321.2 & 322.6 & 308.3 & NaN & – & – & – & – & – & – & NaN & False & False \\
+S1 & + keywords + TF-IDF-SVD & 74 & 287.5 & 294.3 & 281.8 & S0 & +26.5 & +19.1 & +34.6 & 0.0005 & 6.79e-15 & 0.0015 & True & True & False \\
+S2 & + sentence embeddings & 106 & 289.1 & 297.2 & 284.1 & S1 & -2.3 & -5.0 & +0.3 & 0.102 & 0.102 & 0.102 & False & False & False \\
+S3 & + structured attributes (rules) & 120 & 287.3 & 296.0 & 281.7 & S2 & +2.4 & +0.1 & +4.4 & 0.0315 & 0.00635 & 0.063 & False & False & True \\
+P & + portal attributes (exploratory) & 139 & 284.7 & 294.7 & 280.1 & S3 & +1.6 & -0.9 & +4.2 & 0.196 & 0.108 & – & NaN & False & False \\
+S4 & fused network with text (exploratory) & – & 334.5 & 347.8 & 322.2 & P & -42.0 & -52.9 & -32.0 & 0.0005 & 6.64e-25 & – & NaN & False & False \\
+\bottomrule
+\end{tabular}
+\end{table}
+

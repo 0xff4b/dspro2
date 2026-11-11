@@ -1,9 +1,9 @@
 | component          |   variance |   share |
 |:-------------------|-----------:|--------:|
-| canton             |  0.02557   |   0.278 |
-| district           |  0.0007058 |   0.008 |
-| municipality       |  0.002308  |   0.025 |
-| gp_variance        |  0.02335   |   0.254 |
-| gp_range           | 12.94      |   –     |
-| residual           |  0.03994   |   0.435 |
-| gp_practical_range | 35.44      |   –     |
+| canton             |  0.0285    |   0.300 |
+| district           |  0.0006022 |   0.006 |
+| municipality       |  0.001029  |   0.011 |
+| gp_variance        |  0.02467   |   0.259 |
+| gp_range           | 12.59      |   –     |
+| residual           |  0.0403    |   0.424 |
+| gp_practical_range | 34.49      |   –     |
